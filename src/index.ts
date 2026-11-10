@@ -46,9 +46,10 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promi
     const [deals, run] = await Promise.all([listDeals(db), latestRun(db)]);
     const checks = run ? await checksForRun(db, run.id) : [];
     const board = buildBoard(deals, now);
-    return html(renderPage({ board, checks, run, now, expand, lang }));
+    return html(renderPage({ board, deals, checks, run, now, expand, lang }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "dashboard load failed", error: message }));
     return html(
       renderPage({
         board: buildBoard([], new Date()),
@@ -56,7 +57,7 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promi
         run: null,
         now: new Date(),
         expand: false,
-        dbError: `数据库还不可用：${message}。本地请先运行 npm run migrate:local。`,
+        dbError: "unavailable",
       }),
       500,
     );

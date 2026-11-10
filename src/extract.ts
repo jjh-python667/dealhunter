@@ -357,20 +357,17 @@ export function shanghaiDay(date: Date): string {
   }).format(date);
 }
 
+const BEIJING_DATE_FORMAT = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+});
+
 export function formatWhen(value: string | null): string {
   if (!value) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return value;
-  const formatted = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(parsed));
+  const formatted = BEIJING_DATE_FORMAT.format(new Date(parsed));
   return `${formatted} 北京时间`;
 }
 

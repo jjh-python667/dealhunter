@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { buildBoard } from "../src/board";
+import { formatWhen } from "../src/extract";
+import { renderPage, uniqueDeals } from "../src/page";
+import type { DealRecord } from "../src/types";
+
+const now = new Date("2026-11-10T03:00:00Z");
+function deal(id: string, extra: Partial<DealRecord> = {}): DealRecord {
+  return {id,title:`Offer ${id}`,summary:"Free trial for students",category:"software",valueText:"",valueAmount:null,
+    valueCurrency:null,valueTier:"unverified",conditions:"",regions:"",startsAt:null,endsAt:null,timeText:"",steps:"",
+    officialUrl:"https://example.com/offer",sourceUrl:"https://example.com/feed",sourceName:"Example",sourceId:"example",
+    lastVerifiedAt:now.toISOString(),riskNote:"",dealType:"unverified",status:"active",publishedAt:null,rankScore:0,
+    firstSeenAt:now.toISOString(),updatedAt:now.toISOString(),archiveReason:"",...extra};
+}
+function page(rows: DealRecord[], extra: Partial<Parameters<typeof renderPage>[0]> = {}) {
+  return renderPage({board:buildBoard(rows,now),deals:rows,now,run:null,checks:[],expand:false,...extra});
+}
+
+test("a deal in several views is rendered once, without losing its memberships", () => {
+  const rows = [deal("ai",{category:"ai",endsAt:"2026-11-12",rankScore:100})];
+  const board = buildBoard(rows,now);
+  assert.equal(uniqueDeals(board).length,1);
+  const html = page(rows);
+  assert.equal((html.match(/<article /g) || []).length,1);
+  assert.match(html,/data-sections="A B C G"/);
+});
+
+test("all supplied records stay searchable beyond the old 80-item feed cap", () => {
+  const rows = Array.from({length:100},(_,i)=>deal(String(i).padStart(3,"0"),{
+    publishedAt:"2026-10-01T00:00:00Z",
+  }));
+  const html = page(rows);
+  assert.equal((html.match(/<article /g) || []).length,100);
+  assert.match(html,/data-id="099"/);
+});
+
+test("expired active records inherit the archive state from the board", () => {
+  const html = page([deal("expired",{endsAt:"2026-11-01"})]);
+  assert.match(html,/<article class="card archived"[^>]+data-archived="true"[^>]+ hidden>/);
+  assert.match(html,/已归档/);
+});
+
+test("unsafe source links and hostile translated text never become executable markup", () => {
+  const html = page([deal('bad" onmouseover="alert(1)',{
+    title:"<script>alert(1)</script>",zhTitle:'<img src=x onerror="alert(1)">',
+    officialUrl:"javascript:alert(1)",sourceUrl:"data:text/html,bad",
+  })]);
+  assert.doesNotMatch(html,/href="(?:javascript:|data:)/);
+  assert.doesNotMatch(html,/<img src=x/);
+  assert.doesNotMatch(html,/<script>alert\(1\)/);
+  assert.match(html,/&lt;img src=x/);
+  assert.match(html,/data-id="bad&quot; onmouseover=&quot;alert\(1\)"/);
+});
+
+test("source-only and partially translated records retain their original fields", () => {
+  const html = page([deal("partial",{zhTitle:"试用优惠"}),deal("original")]);
+  assert.match(html,/部分内容已翻译/);
+  assert.match(html,/Free trial for students/);
+  assert.match(html,/原文展示/);
+  assert.match(html,/data-set-lang="en"/);
+});
+
+test("the first render has twelve active cards and no automatic expanded details", () => {
+  const html = page(Array.from({length:20},(_,i)=>deal(String(i))));
+  const articles = html.match(/<article[^>]+>/g) || [];
+  assert.equal(articles.filter(article=>!article.endsWith(" hidden>")).length,12);
+  assert.doesNotMatch(html,/<details class="deal-details" open>/);
+});
+
+test("public error pages do not disclose internal database errors or admin instructions", () => {
+  const html = page([],{dbError:"SQLITE_ERROR secret internal database path"});
+  assert.match(html,/情报暂时无法载入/);
+  assert.doesNotMatch(html,/SQLITE_ERROR|ADMIN_TOKEN|migrate:local|secret internal/);
+});
+
+test("unknown dates and regions remain pending and source risk notes remain accessible", () => {
+  const html = page([deal("risk",{category:"bank",riskNote:"原始风险说明，不能删除。"})]);
+  assert.match(html,/待核实/);
+  assert.match(html,/原始风险说明，不能删除。/);
+  assert.match(html,/请先查看风险与资格/);
+});
+
+test("shared date formatter preserves date-only values and Beijing midnight conversion", () => {
+  assert.equal(formatWhen(null), "");
+  assert.equal(formatWhen("2026-11-10"), "2026-11-10");
+  assert.equal(formatWhen("2026-11-10T16:30:00Z"), "2026/11/11 00:30 北京时间");
+  assert.equal(formatWhen("unknown"), "unknown");
+});

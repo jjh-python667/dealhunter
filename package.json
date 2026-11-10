@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "preview": "tsx watch --clear-screen=false scripts/preview.ts",
     "dev": "wrangler dev --local --ip 0.0.0.0 --port 43117 --test-scheduled",
     "test": "tsx --test test/**/*.test.ts",
     "typecheck": "tsc --noEmit",

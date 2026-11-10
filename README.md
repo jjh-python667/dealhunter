@@ -2,7 +2,33 @@
 
 公开的优惠情报站。它按固定规则抓取一批公开 RSS/Atom 和官方页面，把来源原文里写明的优惠整理进看板。来源没有写的金额、日期、地区、条件，页面上显示「待核实」，不会补造。
 
-这个仓库没有部署。`wrangler.jsonc` 里的 `database_id` 是占位符，不是真实数据库。Worker 名称是 `dealhunter`，不要把它部署到、也不要改动已有的 `newsdesk`。
+基础版已上线：[全球羊毛情报中心](https://dealhunter.gongjiang667.workers.dev/)。本地源码包含尚未发布的中文翻译和新版前端。`wrangler.jsonc` 已填写现有 D1，Worker 名称是 `dealhunter`；部署前请核对账号和绑定，保持现有数据库与密钥。此项目独立于 `newsdesk`。
+
+## 新版前端与本机预览
+
+使用 **motion-design** 技能，保留暗色、金色和青色识别，重做导航、字体层级、卡片、留白、手机筛选和轻量动效。重要切换采用位置与透明度组合，支持系统「减少动态效果」，不引入动效库、视频、WebGL 或远程字体。
+
+新增功能：
+
+- 全部、今日、来源标值榜、即将截止、归档、收藏六种视图。同一条优惠只生成一张卡片，分类、优惠类型和搜索可组合使用。
+- 每页 12 条，支持排序、页码、结果计数、清空搜索及无结果恢复。筛选、语言和页码写入 URL，刷新可以恢复。
+- 收藏仅保存在当前浏览器；禁用存储时回退到本次会话，不影响查询。
+- 保留中文／原文切换、部分翻译提示和原文回退。公开页面不调用翻译管理接口，不会因点击语言切换而产生模型调用。
+- 完整条件、来源、风险和归档原因保留在详情里，来源健康记录默认折叠。
+- `/` 聚焦搜索，Esc 清除；支持键盘焦点、屏幕阅读器结果提示，以及无 JavaScript 时查看全部记录。
+
+推荐 Node.js 24。在源码目录执行：
+
+```bash
+npm ci
+npm run preview
+```
+
+打开 [本机预览](http://127.0.0.1:43118/)。预览使用 `preview/snapshot.json` 中的公开线上快照，页面明确标为本机预览，不写入远程 D1、不触发采集、不调用 AI。当前线上快照尚无译文，因此保留原文；机器翻译、原文和部分翻译状态使用独立测试样例验收。
+
+生产入口仍是 `src/index.ts`。页面布局在 `src/page.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
+
+本轮验证：39 项测试、类型检查、22 项浏览器交互验收、320/360/390/768/1024/1440 六种宽度，以及 Worker dry-run 打包。相同的 28 条快照由 86 张重复卡片减到 28 张；HTML 从 249,386 字节减至 149,936 字节。生成时间本机均值从 9.37ms 减至 1.80ms，这些是 Node 本机基准，不是线上 Cloudflare CPU 测量。
 
 ## 它做什么
 
@@ -172,22 +198,22 @@ npm test
 
 使用 Node 自带测试运行器，经 `tsx` 执行 `test/**/*.test.ts`。覆盖去重与跟踪参数、联盟/邀请链接丢弃、截止日期提取、过期判断、排序、空字段显示为「待核实」、页面原文消失后的归档计划，以及 `ADMIN_TOKEN` 门禁。
 
-本次在仓库里执行 `npm test`，退出码 **0**，23 项通过。类型检查是 `npm run typecheck`（先要有 `worker-configuration.d.ts`，已提交；改绑定后重新 `npm run types`）。
+运行 `npm test` 和 `npm run typecheck`。本轮共 39 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、原文回退、归档状态、链接安全与日期格式。改绑定后重新运行 `npm run types`。
 
-## 以后如何部署
+## 更新现有 Worker
 
-还没有部署，也不要在没核对 `database_id` 之前部署。目标是所有者账号下新建的 `dealhunter`，地址会是 `https://dealhunter.<你的子域>.workers.dev`。不要部署或修改名为 `newsdesk` 的 Worker。
+本次只完成本机修改和 dry-run 构建，尚未替换线上版本。目标是现有的 `dealhunter` 与其 D1；不新建数据库，也不操作 `newsdesk`。
 
-1. `npx wrangler login`，确认 `npx wrangler whoami` 是你自己的账号。
-2. `npx wrangler d1 create dealhunter`。命令会打印 `database_id`。
-3. 用那个 id 替换 `wrangler.jsonc` 里的占位符 `00000000-0000-4000-8000-0000000000d1`。不要保留占位符部署。
-4. `npx wrangler d1 migrations apply dealhunter --remote`
-5. `npx wrangler secret put ADMIN_TOKEN`，在提示符里输入令牌。不要把令牌写进命令行参数、`wrangler.jsonc` 或 git。
-6. `npx wrangler deploy`
+1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
+2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
+3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译功能应用新增列；不编辑已应用的迁移。
+4. 保留现有 `ADMIN_TOKEN`。仅当尚未配置时，使用 `npx wrangler secret put ADMIN_TOKEN` 的交互输入，不把令牌写进命令参数或源码。
+5. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
+6. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
 
-`wrangler secret put` 会创建并部署一个新版本。先完成第 3 步和第 4 步，再放令牌。
+普通预览不需要 Cloudflare 登录或密钥。翻译模型的真实输出与用量，需要上线绑定后单独验证；本轮没有发起模型请求。
 
-部署后看 `https://dealhunter.<子域>.workers.dev/` 。定时任务要等 Cloudflare 的 Cron，本地那种 `/cdn-cgi/local/scheduled` 只存在于 `wrangler dev`。
+部署后检查现有线上地址。定时任务由 Cloudflare Cron 执行，本地的 `/cdn-cgi/local/scheduled` 只存在于 `wrangler dev`。
 
 ### 免费额度
 
@@ -217,7 +243,7 @@ npm test
 
 对应原始需求第七部分。下面这些都没有假装完成：
 
-- 没有接入大模型。分类、金额、日期、优惠类型全是规则和正则。判断不了的就空着或标「待核实」。
+- 分类、金额、日期、优惠类型仍是规则和正则，不由大模型编造。翻译独立处理标题和摘要，判断不了的字段仍标「待核实」。
 - 不能登录交易所、银行、厂商后台，也不能绕过 403。Binance、Coinbase、Revolut、Oracle Cloud 免费页这次打不开，所以没有它们的条目。
 - 不渲染需要执行 JavaScript 才出现的正文。首屏 HTML 里没有的句子不会被收录。
 - 不把「30 天」「90 天」「限时」换算成日历截止日，所以这些条目不会进入「即将截止」，也不会因为时间过去而自动归档。
@@ -227,7 +253,7 @@ npm test
 - 不做推送、邮件、Telegram、Slack。这些需要另外的连接器和权限。
 - 不验证你能不能真正参加。它只复述抓到的原文，并在金融类条目上加固定风险提示。
 - 不包含联盟链接、邀请链接或推荐码。
-- 这次没有部署，也没有创建远程 D1。线上 Cron、免费档 CPU 限制、`*.workers.dev` 地址都还没有实测。
+- 基础版地址可访问。本轮没有发布前端或翻译更新，也没有对远程 D1 执行迁移；线上 Cron、翻译质量和实际 CPU 用量需在后续部署中验证。
 
 ## 中文翻译（2026-11-10 新增，待上线）
 
