@@ -1,0 +1,3 @@
+# Local only. Copy to .dev.vars. Never commit .dev.vars or a real token.
+# Production: `wrangler secret put ADMIN_TOKEN` (that uploads a secret; it is not a deploy of this repo's placeholder database).
+ADMIN_TOKEN=replace-with-a-long-random-string

@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dealhunter",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "triggers": {
+    "crons": ["0 */2 * * *", "30 */2 * * *"]
+  },
+  // Workers AI binding, used only for Chinese translation (src/translate.ts).
+  // Usage is capped in code (TRANSLATE_DAILY_MAX rows/day) far below the free
+  // 10,000 Neurons/day. Set TRANSLATE_ENABLED to "0" to turn it off without a redeploy of code.
+    "vars": {
+    "TRANSLATE_ENABLED": "1",
+    "TRANSLATE_BATCH": "6",
+    "TRANSLATE_DAILY_MAX": "80"
+  },
+  "secrets": {
+    "required": ["ADMIN_TOKEN"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dealhunter",
+      // Real remote D1 created 2026-11-10.
+      // `wrangler d1 create dealhunter` before any deploy. Do not deploy this
+      // Worker, and do not touch an existing Worker named newsdesk.
+      "database_id": "5589118d-6f7a-48bc-a2fc-61c42f46f0c3"
+    }
+  ]
+}
