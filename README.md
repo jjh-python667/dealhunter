@@ -4,6 +4,12 @@
 
 基础版已上线：[全球羊毛情报中心](https://dealhunter.gongjiang667.workers.dev/)。本地源码包含尚未发布的中文翻译和新版前端。`wrangler.jsonc` 已填写现有 D1，Worker 名称是 `dealhunter`；部署前请核对账号和绑定，保持现有数据库与密钥。此项目独立于 `newsdesk`。
 
+[GitHub 源码](https://github.com/jjh-python667/dealhunter) · [个人作品集](https://jjh-python667.github.io/projects/dealhunter.html)
+
+![新版前端的本机预览：中文内容简介、分类、筛选和收藏](docs/screenshots/dealhunter-desktop.webp)
+
+截图是本机新版前端，使用公开数据快照；线上基础版与截图版本暂不同步。尚未覆盖的新内容在后台翻译完成前会保留原文。
+
 ## 新版前端与本机预览
 
 使用 **motion-design** 技能，保留暗色、金色和青色识别，重做导航、字体层级、卡片、留白、手机筛选和轻量动效。重要切换采用位置与透明度组合，支持系统「减少动态效果」，不引入动效库、视频、WebGL 或远程字体。
@@ -31,6 +37,8 @@ npm run preview
 生产入口仍是 `src/index.ts`。页面布局在 `src/page.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
 
 本轮验证：44 项测试、类型检查、24 项浏览器交互验收、320/360/390/768/1024/1440 六种宽度，以及 Worker dry-run 打包。28 条快照只生成 28 张独立卡片，复用日期格式器并按页显示；中文切换已逐页检查实际内容，不仅检查按钮状态。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
+
+GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和 dry-run 构建，不会自动部署，也不会触发采集或真实模型。
 
 ## 它做什么
 
