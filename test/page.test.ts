@@ -3,6 +3,7 @@ import test from "node:test";
 import { buildBoard } from "../src/board";
 import { formatWhen } from "../src/extract";
 import { renderPage, uniqueDeals } from "../src/page";
+import { offerEvidence, offerRevision } from "../src/content/evidence";
 import type { DealRecord } from "../src/types";
 
 const now = new Date("2026-11-10T03:00:00Z");
@@ -111,4 +112,23 @@ test("source status distinguishes the failed attempt from the last successful co
   assert.match(html, /最近尝试 2026\/11\/10 11:00 北京时间/);
   assert.match(html, /最近成功 2026\/11\/09 11:00 北京时间/);
   assert.doesNotMatch(html, /internal hostname/);
+});
+
+test("payment and renewal flags require source evidence and surface conflicting terms", () => {
+  const offer = deal("terms", {
+    summary: "Available in the UK. No credit card required. Does not automatically renew.",
+    endsAt: "2026-11-12",
+  });
+  const evidence = offerEvidence(offer);
+  assert.equal(evidence.card, "no");
+  assert.equal(evidence.renewal, "no");
+  assert.deepEqual(evidence.regions, ["gb"]);
+  assert.equal(evidence.deadline, Date.parse("2026-11-12T23:59:59.999Z"));
+  const conflict = { ...offer, summary: offer.summary + " A credit card is required. It automatically renews." };
+  assert.equal(offerEvidence(conflict).card, "conflict");
+  assert.equal(offerEvidence(conflict).renewal, "conflict");
+  assert.match(page([conflict]), /来源表述有冲突/);
+  assert.equal(offerEvidence(deal("unknown")).card, "unknown");
+  assert.equal(offerRevision(offer, evidence), offerRevision({ ...offer, lastVerifiedAt: "2026-11-12" }, evidence));
+  assert.notEqual(offerRevision(offer, evidence), offerRevision(conflict, offerEvidence(conflict)));
 });

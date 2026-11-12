@@ -1,14 +1,11 @@
 import {
   activeIdsForSource,
   archiveDeal,
-  dealExists,
   finishRun,
-  firstSeenAt,
-  insertDeal,
   insertRun,
   insertSourceCheck,
   listDeals,
-  updateDeal,
+  saveCollectedDeal,
   type QueryDb,
 } from "./db";
 import {
@@ -47,9 +44,9 @@ export type CollectionReport = {
   error: string;
 };
 
-async function readLimited(response: Response, maxBytes: number): Promise<string> {
+async function readLimited(response: Response, maxBytes: number): Promise<{text: string; truncated: boolean}> {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return { text: "", truncated: false };
   const chunks: Uint8Array[] = [];
   let received = 0;
   try {
@@ -72,7 +69,7 @@ async function readLimited(response: Response, maxBytes: number): Promise<string
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(merged);
+  return { text: new TextDecoder().decode(merged), truncated: received >= maxBytes };
 }
 
 async function buildStoredDeal(input: {
@@ -123,20 +120,9 @@ async function buildStoredDeal(input: {
   };
 }
 
-async function saveDeal(db: QueryDb, deal: DealRecord): Promise<"inserted" | "updated"> {
-  const exists = await dealExists(db, deal.id);
-  if (!exists) {
-    await insertDeal(db, deal);
-    return "inserted";
-  }
-  const seen = await firstSeenAt(db, deal.id);
-  await updateDeal(db, { ...deal, firstSeenAt: seen ?? deal.firstSeenAt });
-  return "updated";
-}
-
 export async function runCollection(
   db: QueryDb,
-  input: { trigger: string; cron?: string | null; now?: Date; fetchImpl?: typeof fetch },
+  input: { trigger: string; cron?: string | null; now?: Date; fetchImpl?: typeof fetch; sources?: SourceDef[] },
 ): Promise<CollectionReport> {
   const now = input.now ?? new Date();
   const startedAt = now.toISOString();
@@ -161,10 +147,11 @@ export async function runCollection(
       archived += 1;
     }
 
-    for (const source of SOURCES) {
+    for (const source of input.sources ?? SOURCES) {
       const checkedAt = new Date().toISOString();
       let status: number | null = null;
       let body = "";
+      let truncated = false;
       let fetchOk = false;
       let error = "";
       try {
@@ -180,7 +167,7 @@ export async function runCollection(
           signal: AbortSignal.timeout(15_000),
         });
         status = response.status;
-        body = await readLimited(response, MAX_BYTES);
+        ({ text: body, truncated } = await readLimited(response, MAX_BYTES));
         fetchOk = response.ok && !looksLikeChallenge(response.status, body);
         if (!response.ok) error = `HTTP ${response.status}`;
         else if (!fetchOk) error = "疑似拦截页，未把空结果当成优惠下线";
@@ -194,7 +181,10 @@ export async function runCollection(
       if (fetchOk && source.kind === "feed") {
         const items = parseFeed(body);
         itemsSeen = items.length;
-        if (!items.length) error = error || "响应里没有可解析的 RSS/Atom 条目";
+        if (!items.length && (!/<(?:rss|feed|rdf:RDF)\b/i.test(body) || /<(?:item|entry)\b/i.test(body))) {
+          error = "响应里没有可解析的 RSS/Atom 条目";
+          fetchOk = false;
+        }
         for (const item of items) {
           const excerpt = dealExcerptFromItem(item);
           if (!excerpt) {
@@ -212,7 +202,7 @@ export async function runCollection(
             now,
             idParts: link ? [`url:${link}`] : [`feed:${source.id}:${normalizeTitle(item.title)}`],
           });
-          const outcome = await saveDeal(db, deal);
+          const outcome = await saveCollectedDeal(db, deal);
           if (outcome === "inserted") inserted += 1;
           else updated += 1;
           itemsKept += 1;
@@ -222,6 +212,10 @@ export async function runCollection(
         const page = pageText(body);
         const excerpts = matchPage(page.text, source);
         itemsSeen = 1;
+        if (!excerpts.length && truncated) {
+          error = "来源内容超过读取上限，未确认优惠下线";
+          fetchOk = false;
+        }
         for (const excerpt of excerpts) {
           const title = source.repeatPattern ? excerpt.slice(0, 180) : page.title || excerpt.slice(0, 180);
           const deal = await buildStoredDeal({
@@ -236,7 +230,7 @@ export async function runCollection(
               ? [`page:${source.id}:${normalizeTitle(excerpt).slice(0, 180)}`]
               : [`page:${source.id}`],
           });
-          const outcome = await saveDeal(db, deal);
+          const outcome = await saveCollectedDeal(db, deal);
           if (outcome === "inserted") inserted += 1;
           else updated += 1;
           itemsKept += 1;
@@ -244,7 +238,7 @@ export async function runCollection(
         }
       }
 
-      if (fetchOk) {
+      if (fetchOk && source.kind === "page") {
         const existingIds = await activeIdsForSource(db, source.id);
         for (const id of reconcilePlan({ kind: source.kind, fetchOk, existingIds, seenIds })) {
           await archiveDeal(db, id, "来源页面这次已匹配不到原先的表述", checkedAt);
@@ -282,7 +276,7 @@ export async function runCollection(
   });
   if (fatal) throw new Error(fatal);
 
-  const deals = await listDeals(db);
+  const deals = input.sources ? [] : await listDeals(db);
   const byCategory: Record<string, number> = {};
   const bySource: Record<string, number> = {};
   for (const deal of deals) {

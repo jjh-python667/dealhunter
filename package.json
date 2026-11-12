@@ -6,6 +6,7 @@
     "preview": "tsx watch --clear-screen=false scripts/preview.ts",
     "dev": "wrangler dev --local --ip 0.0.0.0 --port 43117 --test-scheduled",
     "test": "tsx --test test/**/*.test.ts",
+    "build:check": "esbuild src/index.ts --bundle --platform=browser --format=esm --target=es2022 --outfile=dist/index.js",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
     "migrate:local": "wrangler d1 migrations apply dealhunter --local"
@@ -13,6 +14,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261110.1",
     "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "wrangler": "^4.159.0"

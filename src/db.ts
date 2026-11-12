@@ -111,25 +111,15 @@ export async function activeIdsForSource(db: QueryDb, sourceId: string): Promise
   return (result.results ?? []).map((row) => row.id);
 }
 
-export async function dealExists(db: QueryDb, id: string): Promise<boolean> {
-  const row = await db.prepare(`SELECT id FROM deals WHERE id = ?`).bind(id).first<{ id: string }>();
-  return Boolean(row);
-}
-
-export async function firstSeenAt(db: QueryDb, id: string): Promise<string | null> {
-  const row = await db.prepare(`SELECT first_seen_at FROM deals WHERE id = ?`).bind(id).first<{ first_seen_at: string }>();
-  return row?.first_seen_at ?? null;
-}
-
-export async function insertDeal(db: QueryDb, deal: DealRecord): Promise<void> {
-  await db
+function newDealStatement(db: QueryDb, deal: DealRecord, conflict = ""): QueryStatement {
+  return db
     .prepare(
       `INSERT INTO deals (
         id, title, category, summary, value_text, value_amount, value_currency, value_tier,
         conditions, regions, starts_at, ends_at, time_text, steps, official_url, source_name,
         source_url, source_id, last_verified_at, risk_note, deal_type, status, published_at,
         rank_score, first_seen_at, updated_at, archive_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ${conflict}`,
     )
     .bind(
       deal.id,
@@ -159,11 +149,21 @@ export async function insertDeal(db: QueryDb, deal: DealRecord): Promise<void> {
       deal.firstSeenAt,
       deal.updatedAt,
       deal.archiveReason,
-    )
-    .run();
+    );
 }
 
-export async function updateDeal(db: QueryDb, deal: DealRecord): Promise<void> {
+export async function insertDeal(db: QueryDb, deal: DealRecord): Promise<void> {
+  await newDealStatement(db, deal).run();
+}
+
+export async function saveCollectedDeal(db: QueryDb, deal: DealRecord): Promise<"inserted" | "updated"> {
+  const added = await newDealStatement(db, deal, "ON CONFLICT(id) DO NOTHING RETURNING id").first<{id: string}>();
+  if (added) return "inserted";
+  await updateDeal(db, deal, true);
+  return "updated";
+}
+
+export async function updateDeal(db: QueryDb, deal: DealRecord, ignoreOlder = false): Promise<void> {
   await db
     .prepare(
       `UPDATE deals SET
@@ -196,7 +196,7 @@ export async function updateDeal(db: QueryDb, deal: DealRecord): Promise<void> {
         rank_score = ?23,
         updated_at = ?24,
         archive_reason = ?25
-       WHERE id = ?26`,
+       WHERE id = ?26${ignoreOlder ? " AND updated_at <= ?24" : ""}`,
     )
     .bind(
       deal.title,
@@ -323,23 +323,58 @@ export async function latestRun(db: QueryDb): Promise<RunRecord | null> {
   };
 }
 
+type SourceCheckRow = {
+  source_id: string;
+  source_url: string;
+  http_status: number | null;
+  ok: number;
+  error: string | null;
+  items_seen: number;
+  items_kept: number;
+  checked_at: string;
+};
+
 export async function checksForRun(db: QueryDb, runId: string): Promise<SourceCheck[]> {
-  const result = await db
-    .prepare(
+  return sourceChecks(db.prepare(
       `SELECT source_id, source_url, http_status, ok, error, items_seen, items_kept, checked_at
        FROM source_checks WHERE run_id = ? ORDER BY id ASC`,
-    )
-    .bind(runId)
-    .all<{
-      source_id: string;
-      source_url: string;
-      http_status: number | null;
-      ok: number;
-      error: string | null;
-      items_seen: number;
-      items_kept: number;
-      checked_at: string;
-    }>();
+  ).bind(runId));
+}
+
+export async function recentSourceChecks(db: QueryDb): Promise<SourceCheck[]> {
+  return sourceChecks(db.prepare(
+    `SELECT source_id, source_url, http_status, ok, error, items_seen, items_kept, checked_at
+     FROM (
+       SELECT source_checks.*, ROW_NUMBER() OVER (PARTITION BY source_id ORDER BY checked_at DESC, id DESC) AS position
+       FROM source_checks WHERE run_id IN (SELECT id FROM runs ORDER BY rowid DESC LIMIT 16)
+     ) WHERE position = 1 ORDER BY source_id`,
+  ));
+}
+
+export async function collectionToken(db: QueryDb): Promise<string> {
+  const row = await db.prepare(
+    `SELECT id FROM runs WHERE finished_at IS NOT NULL AND ok = 1 ORDER BY rowid DESC LIMIT 1`,
+  ).first<{id: string}>();
+  return row?.id ?? "";
+}
+
+export async function sourcePerformance(db: QueryDb, since: string) {
+  const [attempts, offers] = await Promise.all([
+    db.prepare(`SELECT source_id, COUNT(*) AS checked, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failed
+      FROM source_checks WHERE checked_at >= ? GROUP BY source_id`).bind(since)
+      .all<{source_id: string; checked: number; failed: number}>(),
+    db.prepare(`SELECT source_id, COUNT(*) AS added FROM deals
+      WHERE first_seen_at >= ? GROUP BY source_id`).bind(since)
+      .all<{source_id: string; added: number}>(),
+  ]);
+  const additions = new Map((offers.results ?? []).map(row => [row.source_id, row.added]));
+  return (attempts.results ?? []).map(row => ({
+    id: row.source_id, checked: row.checked, failed: row.failed, added: additions.get(row.source_id) ?? 0,
+  }));
+}
+
+async function sourceChecks(statement: QueryStatement): Promise<SourceCheck[]> {
+  const result = await statement.all<SourceCheckRow>();
   return (result.results ?? []).map((row) => ({
     sourceId: row.source_id,
     sourceUrl: row.source_url,

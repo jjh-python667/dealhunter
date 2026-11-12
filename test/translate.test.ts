@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { insertDeal, listDeals, updateDeal, type QueryDb, type QueryStatement } from "../src/db";
+import { collectionToken, finishRun, insertDeal, insertRun, insertSourceCheck, listDeals, recentSourceChecks, saveCollectedDeal, updateDeal, type QueryDb, type QueryStatement } from "../src/db";
+import { scheduledSources, SOURCES } from "../src/sources";
+import { runCollection } from "../src/collect";
 import { bilingual, renderPage } from "../src/page";
 import { buildBoard } from "../src/board";
 import { ENGINE, acceptable, clip, limitsFromEnv, needsTranslation, runTranslation, type TranslatorBinding } from "../src/translate";
@@ -57,6 +59,51 @@ function fakeAi(): TranslatorBinding & { calls: string[] } {
     },
   };
 }
+
+test("a full hour covers each source and checks priority feeds every quarter", () => {
+  const rounds = [0, 15, 30, 45].map(minute => scheduledSources(Date.UTC(2026, 10, 12, 12, minute)));
+  assert.deepEqual(new Set(rounds.flatMap(round => round.map(source => source.id))), new Set(SOURCES.map(source => source.id)));
+  assert.ok(rounds.every(round => round.some(source => source.id === "openai-news") && round.length <= 12));
+});
+
+test("recent status merges staggered runs and update token advances only for completed runs", async () => {
+  const db = memoryDb();
+  for (const [id, sources] of [["first", ["a", "b"]], ["second", ["b"]]] as const) {
+    const time = id === "first" ? "2026-11-12T01:00:00Z" : "2026-11-12T01:15:00Z";
+    await insertRun(db, { id, trigger: "cron", cron: null, startedAt: time });
+    for (const sourceId of sources) await insertSourceCheck(db, id, {
+      sourceId, sourceUrl: "https://example.com/feed", httpStatus: 200, ok: id === "first",
+      error: "", itemsSeen: 1, itemsKept: 1, checkedAt: time,
+    });
+    if (id === "first") await finishRun(db, {
+      id, finishedAt: time, ok: true, inserted: 1, updated: 0, archived: 0, skipped: 0, error: null,
+    });
+  }
+  assert.equal(await collectionToken(db), "first");
+  assert.deepEqual((await recentSourceChecks(db)).map(row => [row.sourceId, row.ok]), [["a", true], ["b", false]]);
+});
+
+test("collection deduplicates stable IDs and protects a newer revision and its first-seen time", async () => {
+  const db = memoryDb();
+  const initial = deal("same", "First", "Free trial");
+  assert.equal(await saveCollectedDeal(db, initial), "inserted");
+  await saveCollectedDeal(db, { ...initial, title: "New", firstSeenAt: "2026-11-13", updatedAt: "2026-11-13" });
+  await saveCollectedDeal(db, { ...initial, title: "Late stale update" });
+  const rows = await listDeals(db);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.title, "New");
+  assert.equal(rows[0]?.firstSeenAt, initial.firstSeenAt);
+});
+
+test("a successful HTTP response with an invalid feed records a source failure", async () => {
+  const db = memoryDb();
+  const report = await runCollection(db, {
+    trigger: "test", sources: [SOURCES[0]!],
+    fetchImpl: async () => new Response("<html>Maintenance</html>"),
+  });
+  assert.equal(report.checks[0]?.ok, false);
+  assert.equal(report.checks[0]?.httpStatus, 200);
+});
 
 test("language detection skips Chinese and empty text", () => {
   assert.equal(needsTranslation("Get $300 free credit"), true);

@@ -294,7 +294,9 @@ export function extractRegions(text: string): string {
     /EEA only/i,
     /not available to residents of [^.]{3,80}/i,
     /excluding [^.]{3,80}/i,
-    /\bworldwide\b/i,
+    /\b(?:available|eligible|offered) worldwide\b/i,
+    /\b(?:available|offered) (?:only )?in (?:the )?(?:United States|USA?|United Kingdom|UK|Canada|mainland China|Hong Kong|Taiwan|Singapore|Australia|Japan|India|European Union|EU)(?:\b[^.!?。]{0,90})/i,
+    /(?:仅限|适用于|适用地区[：:])(?:中国大陆|中国香港|中国台湾|美国|英国|加拿大|欧盟|日本|印度|新加坡|澳大利亚)[^。；]{0,60}/,
   ];
   const hits = patterns.map((pattern) => text.match(pattern)?.[0]).filter((item): item is string => Boolean(item));
   return [...new Set(hits)].join(" · ").slice(0, 300);

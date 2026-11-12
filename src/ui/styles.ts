@@ -19,4 +19,31 @@ export const PAGE_CSS = String.raw`
 .evidence-filters label{display:inline-flex;align-items:center;gap:5px;min-height:44px;cursor:pointer}
 .evidence-filters input{margin:0;accent-color:var(--gold);width:16px;height:16px}
 .saved-deadline{margin:0 0 10px;color:var(--gold);font-size:12px}
+.radar-controls{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin:0 0 14px}
+.radar-panel{flex:1 1 170px;min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.radar-panel>summary{min-height:44px;padding:10px 13px;color:var(--ink);font-weight:600}
+.radar-panel form,.alerts-body{padding:4px 13px 13px;color:var(--muted);font-size:13px}
+.radar-panel form>small{display:block;margin-top:6px}
+.preference-fields,.radar-panel fieldset{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:8px 12px}
+.radar-panel fieldset{min-width:0;margin:10px 0;padding:8px;border:1px solid var(--line);border-radius:8px}
+.radar-panel label{display:flex;align-items:center;gap:6px;min-height:35px;flex-wrap:wrap}
+.radar-panel select{min-width:0;max-width:100%;padding:4px 5px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.radar-panel input{accent-color:var(--gold)}
+.alerts-body ul{max-height:290px;overflow:auto;margin:0 0 8px;padding:0;list-style:none}
+.alerts-body li{padding:6px 0;border-bottom:1px solid var(--line)}
+.alerts-body li small,.evidence-quote{display:block;color:var(--muted);overflow-wrap:anywhere}
+.alerts-body .text-button{text-align:left;white-space:normal;overflow-wrap:anywhere}
+.alert-day,#alert-count,.recommendation-reason{color:var(--gold)}
+.recommendation-reason{margin:0 0 8px;font-size:12px}
+.details-body dd{white-space:pre-line;overflow-wrap:anywhere}
+@media(prefers-reduced-motion:no-preference){
+  .hero h1{transform-origin:50% 100%;animation:title-opening 860ms cubic-bezier(.16,1,.3,1) both}
+  .hero .eyebrow,.hero-description,.hero-stats{animation:panel-opening 620ms cubic-bezier(.16,1,.3,1) both}
+  .hero-description{animation-delay:100ms}.hero-stats{animation-delay:170ms}
+  .section-reveal>div:first-child,.section-reveal>summary{animation:panel-opening 560ms cubic-bezier(.16,1,.3,1) both}
+  .card.enter{animation:card-reveal 440ms cubic-bezier(.16,1,.3,1) var(--delay,0ms) both}
+}
+@keyframes title-opening{from{clip-path:inset(100% 0 0 0);transform:translate3d(0,26px,0) scaleY(.72)}to{clip-path:inset(0 0 0 0);transform:none}}
+@keyframes panel-opening{from{clip-path:inset(0 0 100% 0);transform:translate3d(0,11px,0)}to{clip-path:inset(0 0 0 0);transform:none}}
+@keyframes card-reveal{from{clip-path:inset(0 0 16% 0 round 14px);transform:translate3d(0,12px,0)}to{clip-path:inset(0 0 0 0 round 14px);transform:none}}
 `;
