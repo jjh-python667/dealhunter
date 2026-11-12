@@ -4,14 +4,33 @@ import { runCollection } from "./collect";
 import {
   checksForRun,
   collectionToken,
+  feedbackCountForBrowser,
+  feedbackSummaryForDeal,
   getDeal,
   lastSuccessfulSourceChecks,
   latestRun,
   listDeals,
+  recordFeedback,
   recentSourceChecks,
+  reviewFeedback,
   sourcePerformance,
   type QueryDb,
 } from "./db";
+import {
+  EMPTY_FEEDBACK,
+  FEEDBACK_DAILY_MAX,
+  FEEDBACK_DAILY_MS,
+  FEEDBACK_RATE_WINDOW_MAX,
+  FEEDBACK_RATE_WINDOW_MS,
+  dealTermsVersion,
+  feedbackHashes,
+  feedbackWindowStart,
+  isFeedbackBrowserId,
+  isFeedbackReviewStatus,
+  isFeedbackTermsVersion,
+  isFeedbackVote,
+  publicFeedbackSummary,
+} from "./feedback";
 import { renderPage } from "./page";
 import { langFromUrl, resolveRoute } from "./routes";
 import { RADAR_CRON, scheduledSources } from "./sources";
@@ -52,6 +71,103 @@ function html(body: string, status = 200): Response {
       "referrer-policy": "no-referrer",
     },
   });
+}
+
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const value = await request.json();
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Never store the raw address; the caller hashes it and the digest rotates daily. */
+function clientNetworkKey(request: Request): string {
+  const ip = request.headers.get("cf-connecting-ip")
+    ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? "unknown";
+  return ip.slice(0, 80);
+}
+
+/**
+ * Public, anonymous, idempotent vote: "still works / expired / not sure".
+ * The page always tells the visitor which version they are voting on, and the
+ * server recomputes that version before accepting the vote, so a stale tab can
+ * never mix feedback across changed terms.
+ */
+async function submitFeedback(request: Request, db: QueryDb): Promise<Response> {
+  const payload = await readJsonObject(request);
+  if (!payload) return json({ error: "invalid_payload" }, 400);
+  const dealId = typeof payload.dealId === "string" ? payload.dealId.trim() : "";
+  const vote = payload.vote;
+  const browserId = payload.browserId;
+  const termsVersion = payload.termsVersion;
+  if (!dealId || dealId.length > 160 || !/^[A-Za-z0-9][A-Za-z0-9._~-]{0,159}$/.test(dealId)) {
+    return json({ error: "invalid_deal" }, 400);
+  }
+  if (!isFeedbackVote(vote)) return json({ error: "invalid_vote" }, 400);
+  if (!isFeedbackBrowserId(browserId)) return json({ error: "invalid_browser" }, 400);
+  if (!isFeedbackTermsVersion(termsVersion)) return json({ error: "invalid_version" }, 400);
+  try {
+    const deal = await getDeal(db, dealId);
+    if (!deal) return json({ error: "deal_not_found" }, 404);
+    const currentVersion = dealTermsVersion(deal);
+    const now = new Date();
+    if (currentVersion !== termsVersion) {
+      const summary = await feedbackSummaryForDeal(db, deal.id, currentVersion, feedbackWindowStart(now))
+        .then((result) => result.summary)
+        .catch(() => EMPTY_FEEDBACK);
+      return json({ error: "stale_version", summary: publicFeedbackSummary(summary) }, 409);
+    }
+    const { browserHash, networkHash } = await feedbackHashes({ browserId, networkKey: clientNetworkKey(request), now });
+    const windowStart = new Date(now.getTime() - FEEDBACK_RATE_WINDOW_MS).toISOString();
+    if (await feedbackCountForBrowser(db, browserHash, windowStart) >= FEEDBACK_RATE_WINDOW_MAX) {
+      return json({ error: "rate_limited", retryAfterMs: FEEDBACK_RATE_WINDOW_MS }, 429);
+    }
+    const dayStart = new Date(now.getTime() - FEEDBACK_DAILY_MS).toISOString();
+    if (await feedbackCountForBrowser(db, browserHash, dayStart) >= FEEDBACK_DAILY_MAX) {
+      return json({ error: "rate_limited", retryAfterMs: FEEDBACK_DAILY_MS }, 429);
+    }
+    const inserted = await recordFeedback(db, {
+      dealId: deal.id,
+      termsVersion: currentVersion,
+      vote,
+      browserHash,
+      networkHash,
+      createdAt: now.toISOString(),
+    });
+    const summary = await feedbackSummaryForDeal(db, deal.id, currentVersion, feedbackWindowStart(now));
+    return json({ ok: true, created: inserted === "inserted", vote, summary: publicFeedbackSummary(summary.summary) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "feedback submit failed", error: message }));
+    return json({ error: "feedback_unavailable" }, 503);
+  }
+}
+
+/** Small operator endpoint until the admin UI lands; same ADMIN_TOKEN gate as collection. */
+async function reviewFeedbackRequest(request: Request, db: QueryDb, adminToken: string | undefined): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+  const decision = await adminDecision(request, adminToken);
+  if (decision === "unconfigured") return json({ error: "admin_not_configured" }, 503);
+  if (decision === "unauthorized") return json({ error: "unauthorized" }, 401);
+  const payload = await readJsonObject(request);
+  if (!payload) return json({ error: "invalid_payload" }, 400);
+  const id = typeof payload.id === "number" && Number.isInteger(payload.id) && payload.id > 0 ? payload.id : 0;
+  const status = payload.status;
+  const note = typeof payload.note === "string" ? payload.note.trim().slice(0, 200) : "";
+  if (!id || !isFeedbackReviewStatus(status) || (status !== "kept" && status !== "held")) {
+    return json({ error: "invalid_review" }, 400);
+  }
+  try {
+    const updated = await reviewFeedback(db, { id, status, note, reviewedAt: new Date().toISOString() });
+    return updated ? json({ ok: true }) : json({ error: "not_found" }, 404);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "feedback review failed", error: message }));
+    return json({ error: "review_failed" }, 500);
+  }
 }
 
 async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channel?: "ai" | "cloud"): Promise<Response> {
@@ -121,9 +237,18 @@ async function portalHome(db: QueryDb, lang: "zh" | "en"): Promise<Response> {
 
 async function dealDetail(db: QueryDb, id: string, lang: "zh" | "en", origin: string): Promise<Response> {
   try {
+    const now = new Date();
     const deal = await getDeal(db, id);
     if (!deal) return html(renderNotFound({ lang, path: `/deal/${id}` }), 404);
-    return html(renderDealDetail({ deal, now: new Date(), lang, origin }));
+    const termsVersion = dealTermsVersion(deal);
+    const feedback = await feedbackSummaryForDeal(db, deal.id, termsVersion, feedbackWindowStart(now))
+      .then((result) => result.summary)
+      .catch((error) => {
+        // Feedback is advisory; a broken feedback table must never hide the deal.
+        console.error(JSON.stringify({ message: "feedback summary failed", error: error instanceof Error ? error.message : String(error) }));
+        return EMPTY_FEEDBACK;
+      });
+    return html(renderDealDetail({ deal, now, lang, origin, feedback }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "detail load failed", error: message }));
@@ -166,6 +291,13 @@ export default {
       const run = await latestRun(db);
       const checks = run ? await checksForRun(db, run.id) : [];
       return json({ run, checks });
+    }
+    if (url.pathname === "/api/feedback") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      return submitFeedback(request, db);
+    }
+    if (url.pathname === "/api/admin/feedback/review") {
+      return reviewFeedbackRequest(request, db, env.ADMIN_TOKEN);
     }
     if (url.pathname === "/api/admin/collect") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
