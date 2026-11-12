@@ -140,7 +140,7 @@ function endingRow(deal: DealRecord, now: Date): string {
   </li>`;
 }
 
-function recommendationBoard(active: DealRecord[], now: Date): string {
+function recommendationBoard(active: DealRecord[], now: Date, lang: SiteLang): string {
   const ranked = active
     .filter(deal => stamp(deal.startsAt) <= now.getTime() && deal.valueText.trim() && sanitizeUrl(deal.officialUrl))
     .map(deal => ({ deal, strength: evidenceStrength(deal, now), verified: stamp(deal.lastVerifiedAt) }))
@@ -153,9 +153,13 @@ function recommendationBoard(active: DealRecord[], now: Date): string {
     return `<li><div><a class="ending-title" href="${detailPath(deal.id)}">${bilingual(deal.title, copy.title)}</a>
       <span class="ending-sub">${escapeHtml([CATEGORY_LABEL[deal.category], ...facts].join(" · "))}${verified ? ` · 核验 ${escapeHtml(formatWhen(deal.lastVerifiedAt))}` : ""}</span></div><span class="portal-value">${valueMarkup(deal)}</span></li>`;
   }).join("");
+  const title = lang === "en" ? "Top Recommendations" : "推荐榜";
+  const note = lang === "en"
+    ? "Up to five active deals, ranked by the completeness of their source evidence. Ties favor the most recently verified deals."
+    : "最多 5 条。优先展示原文证据更完整的有效优惠，同等条件下按核验时间排序。";
   return `<section class="portal-section" id="recommendations" aria-labelledby="recommendations-title">
-    <div class="portal-section-head"><div><h2 id="recommendations-title">推荐榜</h2>
-    <p class="portal-section-note">最多 5 条。优先展示原文证据更完整的有效优惠，同等条件下按核验时间排序。</p></div></div>
+    <div class="portal-section-head"><div><h2 id="recommendations-title">${title}</h2>
+    <p class="portal-section-note">${note}</p></div></div>
     ${rows ? `<ol class="recommendation-list">${rows}</ol>` : '<p class="section-empty">暂无证据足够完整的有效优惠。</p>'}
   </section>`;
 }
@@ -289,7 +293,7 @@ export function renderHome(input: HomeInput): string {
 <main class="portal" id="main">
 ${hero}
 ${errorBanner}
- ${recommendationBoard(active, now)}
+ ${recommendationBoard(active, now, lang)}
 <section class="portal-section" id="today-featured" aria-labelledby="today-featured-title">${sectionHead({ number: "01", tag: "TODAY", id: "today-featured", title: "今日精选", note: "证据优先：只把来源原文写明优惠力度、参与条件与期限的条目放进精选；证据不足时整段留空。", href: "/deals", label: "浏览全部情报" })}${featuredHtml}</section>
 <section class="portal-section" id="latest" aria-labelledby="latest-title">${sectionHead({ number: "02", tag: "LATEST", id: "latest", title: "最新收录", note: "按来源发布时间或本站第一次收录时间倒序，最多 6 条。", href: "/deals", label: "查看全部" })}${latestHtml}</section>
 <section class="portal-section" id="ending" aria-labelledby="ending-title">${sectionHead({ number: "03", tag: "ENDING SOON", id: "ending", title: "即将截止", note: "只含未来 7 天内到期、且来源给出日历截止日的在册活动。", href: "/deals?view=ending", label: "按截止时间筛选" })}${endingHtml}</section>

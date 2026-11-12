@@ -67,7 +67,7 @@ test("an older snapshot survives a live read failure only before its validity bo
 test("late snapshot refreshes cannot overwrite a newer batch", async () => {
   const sqlite = new DatabaseSync(":memory:");
   try {
-    sqlite.exec(readFileSync("migrations/0003_portal_snapshots.sql", "utf8"));
+    sqlite.exec(readFileSync("migrations/0004_portal_snapshots.sql", "utf8"));
     const db = {
       prepare: (sql: string) => ({
         bind: (key: string, generated: number, valid: number, body: ArrayBuffer) =>

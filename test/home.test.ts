@@ -84,6 +84,13 @@ test("recommendation board ranks by evidence then verification and omits ineligi
   assert.match(between(home([]), "recommendations", "</section>"), /暂无证据足够完整/);
 });
 
+test("the recommendation board renders its title and ranking note in English in EN mode", () => {
+  const english = between(home([strong("one")], { lang: "en" }), "recommendations", "</section>");
+  assert.match(english, /<h2 id="recommendations-title">Top Recommendations<\/h2>/);
+  assert.match(english, /<p class="portal-section-note">Up to five active deals, ranked by the completeness of their source evidence\. Ties favor the most recently verified deals\.<\/p>/);
+  assert.doesNotMatch(english, /推荐榜|优先展示原文证据/);
+});
+
 test("the hero search form works without JavaScript and posts to /deals", () => {
   const html = home([strong("one")]);
   assert.match(html, /<form class="portal-search" action="\/deals" method="get" role="search">/);
