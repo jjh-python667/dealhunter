@@ -68,6 +68,22 @@ test("the four curated sections appear in the fixed order", () => {
   assert.match(html, /<h2 id="for-you-title">适合我<\/h2>/);
 });
 
+test("recommendation board ranks by evidence then verification and omits ineligible offers", () => {
+  const html = home([
+    strong("older", { lastVerifiedAt: "2026-11-09T00:00:00Z" }),
+    strong("recent"),
+    strong("best", { steps: "Apply online" }),
+    strong("expired", { endsAt: "2026-11-01" }),
+    strong("future", { startsAt: "2026-11-12" }),
+    strong("unsafe", { officialUrl: "javascript:alert(1)" }),
+    deal("unproven"),
+  ]);
+  const rank = between(html, "recommendations", "</section>");
+  assert.match(rank, /Offer best[\s\S]*Offer recent[\s\S]*Offer older/);
+  assert.doesNotMatch(rank, /Offer (expired|future|unsafe|unproven)/);
+  assert.match(between(home([]), "recommendations", "</section>"), /暂无证据足够完整/);
+});
+
 test("the hero search form works without JavaScript and posts to /deals", () => {
   const html = home([strong("one")]);
   assert.match(html, /<form class="portal-search" action="\/deals" method="get" role="search">/);

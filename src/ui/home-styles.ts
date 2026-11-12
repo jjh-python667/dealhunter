@@ -4,6 +4,12 @@
  * push the page sideways at 390px, and the desktop layout is capped at 1320px.
  */
 export const HOME_CSS = String.raw`
+.recommendation-list{margin:0;padding:0;list-style:none;counter-reset:recommendation;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.recommendation-list li{counter-increment:recommendation;display:grid;grid-template-columns:2ch minmax(0,1fr) minmax(0,30%);gap:12px;align-items:center;padding:12px 16px;overflow-wrap:anywhere}
+.recommendation-list li+li{border-top:1px solid var(--line)}
+.recommendation-list li::before{content:counter(recommendation,decimal-leading-zero);font:600 13px ui-monospace,monospace;color:var(--gold)}
+.recommendation-list .portal-value{text-align:right}
+@media(max-width:480px){.recommendation-list li{grid-template-columns:2ch minmax(0,1fr);gap:5px 10px;padding:10px 12px}.recommendation-list .portal-value{grid-column:2;text-align:left}}
 .portal{max-width:1320px;margin:0 auto;padding:28px 36px 56px;min-width:0}
 .portal-hero{position:relative;isolation:isolate;overflow:hidden;border:1px solid #2e3b47;border-radius:24px;padding:clamp(26px,4.2vw,56px) clamp(22px,4vw,54px) clamp(22px,3vw,38px);background:radial-gradient(ellipse 640px 340px at 88% -8%,#e9bd7626,transparent 68%),radial-gradient(ellipse 460px 300px at 2% 108%,#8dd4c810,transparent 70%),linear-gradient(158deg,#16212c 0%,#0e1720 58%,#0a1119 100%);box-shadow:0 26px 60px #00000033,inset 0 1px #ffffff14}
 .portal-hero:before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(#ffffff06 1px,transparent 1px),linear-gradient(90deg,#ffffff06 1px,transparent 1px);background-size:58px 58px;-webkit-mask-image:radial-gradient(ellipse 72% 78% at 62% 0%,#000 0%,transparent 76%);mask-image:radial-gradient(ellipse 72% 78% at 62% 0%,#000 0%,transparent 76%);opacity:.5}
