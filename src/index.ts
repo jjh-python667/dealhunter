@@ -15,6 +15,7 @@ import {
 import { renderPage } from "./page";
 import { langFromUrl, resolveRoute } from "./routes";
 import { RADAR_CRON, scheduledSources } from "./sources";
+import { saveSnapshots, serveSnapshot, snapshotBoundary, type SnapshotLang, type SnapshotPage } from "./snapshots";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
 import { renderDealDetail } from "./ui/detail";
 import { renderHome } from "./ui/home";
@@ -56,15 +57,7 @@ function html(body: string, status = 200): Response {
 async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channel?: "ai" | "cloud"): Promise<Response> {
   try {
     const now = new Date();
-    const [deals, run, checks, updateToken] = await Promise.all([
-      listDeals(db), latestRun(db), recentSourceChecks(db), collectionToken(db),
-    ]);
-    const board = buildBoard(deals, now);
-    const sourceSuccess = await lastSuccessfulSourceChecks(db, checks).catch(error => {
-      console.error("Could not load source success history", error);
-      return undefined;
-    });
-    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess, updateToken, channel }));
+    return html(renderPage({ ...await dashboardData(db, now), expand, lang, channel }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "dashboard load failed", error: message }));
@@ -83,11 +76,42 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channe
   }
 }
 
+async function dashboardData(db: QueryDb, now: Date) {
+  const [deals, run, checks, updateToken] = await Promise.all([
+    listDeals(db), latestRun(db), recentSourceChecks(db), collectionToken(db),
+  ]);
+  const sourceSuccess = await lastSuccessfulSourceChecks(db, checks).catch(error => {
+    console.error("Could not load source success history", error);
+    return undefined;
+  });
+  return { deals, run, checks, updateToken, sourceSuccess, board: buildBoard(deals, now), now };
+}
+
+async function refreshSnapshots(env: Env): Promise<void> {
+  try {
+    const now = new Date();
+    const data = await dashboardData(env.DB as unknown as QueryDb, now);
+    const pages: Array<{page: SnapshotPage; lang: SnapshotLang; html: string}> = [];
+    for (const lang of ["zh", "en"] as const) {
+      pages.push({ page: "home", lang, html: renderHome({ ...data, lang }) });
+      for (const channel of ["ai", "cloud"] as const) {
+        pages.push({ page: channel, lang, html: renderPage({ ...data, expand: false, lang, channel }) });
+      }
+    }
+    await saveSnapshots(env.DB, now.getTime(), snapshotBoundary(data.deals, now.getTime()), pages);
+  } catch (error) {
+    console.error("Could not refresh portal snapshots", error);
+  }
+}
+
 async function portalHome(db: QueryDb, lang: "zh" | "en"): Promise<Response> {
   try {
     const now = new Date();
-    const [deals, run] = await Promise.all([listDeals(db), latestRun(db)]);
-    return html(renderHome({ deals, now, lang, run }));
+    let dealRows: number | undefined;
+    const [deals, run] = await Promise.all([listDeals(db, rows => { dealRows = rows; }), latestRun(db)]);
+    const response = html(renderHome({ deals, now, lang, run }));
+    if (dealRows !== undefined) response.headers.set("server-timing", `deal_d1_rows;dur=${dealRows}`);
+    return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "home load failed", error: message }));
@@ -108,7 +132,7 @@ async function dealDetail(db: QueryDb, id: string, lang: "zh" | "en", origin: st
 }
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const db = env.DB as unknown as QueryDb;
     console.log(JSON.stringify({ message: "request", method: request.method, path: url.pathname }));
@@ -150,6 +174,11 @@ export default {
       if (decision === "unauthorized") return json({ error: "unauthorized" }, 401);
       try {
         const report = await runCollection(db, { trigger: "admin" });
+        if (report.checks.some(check => check.ok)) {
+          const refresh = refreshSnapshots(env);
+          if (ctx) ctx.waitUntil(refresh);
+          else await refresh;
+        }
         return json(report);
       } catch (error) {
         console.error(JSON.stringify({ message: "admin collection failed", error: error instanceof Error ? error.message : String(error) }));
@@ -175,13 +204,19 @@ export default {
 
     const lang = langFromUrl(url);
     const route = resolveRoute(url);
+    const portal = (page: SnapshotPage, live: () => Promise<Response>) => serveSnapshot({
+      request, page, lang, db: env.DB, cache: typeof caches === "undefined" ? undefined : caches.default, html, live,
+      defer: ctx ? promise => ctx.waitUntil(promise) : undefined,
+    });
     switch (route.kind) {
       case "home":
-        return portalHome(db, lang);
+        return portal("home", () => portalHome(db, lang));
       case "deals":
         return dashboard(db, url.searchParams.get("expand") === "1", lang);
       case "channel":
-        return dashboard(db, url.searchParams.get("expand") === "1", lang, route.channel);
+        return url.searchParams.get("expand") === "1"
+          ? dashboard(db, true, lang, route.channel)
+          : portal(route.channel, () => dashboard(db, false, lang, route.channel));
       case "detail":
         return dealDetail(db, route.id, lang, url.origin);
       case "redirect":
@@ -204,6 +239,7 @@ export default {
       return;
     }
     const sources = controller.cron === RADAR_CRON ? scheduledSources(controller.scheduledTime) : undefined;
-    await runCollection(db, { trigger: "cron", cron: controller.cron, sources });
+    const report = await runCollection(db, { trigger: "cron", cron: controller.cron, sources });
+    if (report.checks.some(check => check.ok)) await refreshSnapshots(env);
   },
 } satisfies ExportedHandler<Env>;
