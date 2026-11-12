@@ -2,7 +2,7 @@
 
 公开的优惠情报站。它按固定规则抓取一批公开 RSS/Atom 和官方页面，把来源原文里写明的优惠整理进看板。来源没有写的金额、日期、地区、条件，页面上显示「待核实」，不会补造。
 
-线上基础版：[全球羊毛情报中心](https://dealhunter.gongjiang667.workers.dev/)，当前线上版本是 `c0e7cd4b`。本仓库 `main` 分支还包含尚未发布的中文翻译、门户首页与独立详情页；本轮只提交代码和文档，**没有部署 Cloudflare、没有迁移远程 D1、没有改密钥**。`wrangler.jsonc` 已填写现有 D1，Worker 名称是 `dealhunter`；部署前请核对账号和绑定，保持现有数据库与密钥。此项目独立于 `newsdesk`。
+[访问线上门户](https://dealhunter.gongjiang667.workers.dev/)。门户首页、AI 工具频道、云服务频道和完整看板已上线。首页推荐榜在 [PR #4](https://github.com/jjh-python667/dealhunter/pull/4) 审阅中，等待发布。
 
 [GitHub 源码](https://github.com/jjh-python667/dealhunter) · [个人作品集](https://jjh-python667.github.io/projects/dealhunter.html)
 
@@ -10,7 +10,7 @@
 
 ![门户首页（本机预览）：顶部导航、今日精选与频道入口](docs/screenshots/portal-home-desktop.jpg)
 
-截图都是本机预览，使用公开数据快照；线上基础版与截图版本暂不同步。尚未覆盖的新内容在后台翻译完成前会保留原文。
+截图都是本机预览，使用公开数据快照；截图记录开发时的界面。尚未覆盖的新内容在后台翻译完成前会保留原文。
 
 ## 完整看板与本机预览（`/deals`）
 
@@ -40,13 +40,13 @@ npm run preview
 
 生产入口仍是 `src/index.ts`。路由解析在 `src/routes.ts`，看板布局在 `src/page.ts`，门户首页在 `src/ui/home.ts`，详情页在 `src/ui/detail.ts`，顶部导航与共享卡片在 `src/ui/nav.ts`、`src/ui/shared.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
 
-本轮验证：120 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
+门户版开发验收：120 项测试、类型检查、Worker 本地打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
 
 GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和本地打包检查。
 
-## 门户首页、AI/云频道与独立详情页（2026-11-12 新增，待上线）
+## 门户首页、AI/云频道与独立详情页
 
-这一轮把原来只有一块看板的页面拆成可分享的优惠门户。线上仍是基础版，本轮没有部署。
+门户将优惠按首页、频道、完整看板与独立详情页组织。
 
 | 地址 | 页面 |
 | --- | --- |
@@ -268,7 +268,7 @@ npm test
 
 ## 更新现有 Worker
 
-本次只完成本机修改和 dry-run 构建，尚未替换线上版本。目标是现有的 `dealhunter` 与其 D1；不新建数据库，也不操作 `newsdesk`。
+以下记录早期版本的发布流程。目标是现有的 `dealhunter` 与其 D1；不新建数据库，也不操作 `newsdesk`。
 
 1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
 2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
@@ -319,7 +319,7 @@ npm test
 - 不做推送、邮件、Telegram、Slack。这些需要另外的连接器和权限。
 - 不验证你能不能真正参加。它只复述抓到的原文，并在金融类条目上加固定风险提示。
 - 不包含联盟链接、邀请链接或推荐码。
-- 基础版地址可访问。本轮没有发布前端或翻译更新，也没有对远程 D1 执行迁移；线上 Cron、翻译质量和实际 CPU 用量需在后续部署中验证。
+- 此处验收记录针对当时的本机构建。
 
 ## 中文翻译（2026-11-10 新增，待上线）
 
