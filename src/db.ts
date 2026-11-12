@@ -106,6 +106,21 @@ export async function listDeals(db: QueryDb): Promise<DealRecord[]> {
   });
 }
 
+/** One deal for a shareable detail page. Archived rows stay readable through the same query. */
+export async function getDeal(db: QueryDb, id: string): Promise<DealRecord | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, title, category, summary, value_text, value_amount, value_currency, value_tier,
+              conditions, regions, starts_at, ends_at, time_text, steps, official_url, source_name,
+              source_url, source_id, last_verified_at, risk_note, deal_type, status, published_at,
+              rank_score, first_seen_at, updated_at, archive_reason, zh_title, zh_summary
+       FROM deals WHERE id = ? LIMIT 1`,
+    )
+    .bind(id)
+    .first<DealRow>();
+  return row ? mapDeal(row) : null;
+}
+
 export async function activeIdsForSource(db: QueryDb, sourceId: string): Promise<string[]> {
   const result = await db.prepare(`SELECT id FROM deals WHERE source_id = ? AND status = 'active'`).bind(sourceId).all<{ id: string }>();
   return (result.results ?? []).map((row) => row.id);
