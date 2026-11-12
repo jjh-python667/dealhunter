@@ -109,7 +109,7 @@ npm run preview
 - 限流：同一浏览器 10 分钟内最多 3 次、24 小时内最多 10 次。原始 IP 不落库，只用于当天的短期网络分组摘要。
 - 公开提示只统计最近 72 小时、当前条款版本、未被人工压下的反馈；至少 3 个不同浏览器且来自 2 个网络分组才显示「近三天有访客反馈可领取」。2 个不同网络分组反馈「已失效」时暂停正向提示，进入人工复核。
 - 公开页面只显示汇总提示，不显示提交者标识或网络标识。审核用 `POST /api/admin/feedback/review`（同一个 `ADMIN_TOKEN`）把单条反馈标记为 `kept` / `held`。
-- `migrations/0003_feedback.sql` 是新增表；部署前需要应用到 D1。本轮只写代码，**没有操作远程数据库、没有部署**。
+- `migrations/0005_feedback.sql` 是新增表。线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；0005 尚未应用到线上 D1。本轮只写代码，**没有操作远程数据库、没有部署**。
 - 本机预览里的反馈只存在内存中，刷新预览进程即清空，方便试用，不写入 D1。
 
 ### 个性化优惠雷达
@@ -299,7 +299,7 @@ npm test
 
 1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
 2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
-3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译、领取反馈和门户快照应用迁移（0002 翻译列、0003 反馈表、0004 快照表）；不编辑已应用的迁移。本轮没有执行远程迁移。
+3. 线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；本轮新增的只有 `0005_feedback.sql`（领取反馈表），尚未上线。部署时用 `npx wrangler d1 migrations apply dealhunter --remote` 应用 0005；不编辑已应用的迁移。本轮没有执行远程迁移。
 4. 保留现有 `ADMIN_TOKEN`。仅当尚未配置时，使用 `npx wrangler secret put ADMIN_TOKEN` 的交互输入，不把令牌写进命令参数或源码。
 5. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
 6. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
