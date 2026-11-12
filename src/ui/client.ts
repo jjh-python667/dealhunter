@@ -9,6 +9,14 @@ export const CLIENT_SCRIPT = String.raw`
   const category = document.querySelector('#category');
   const type = document.querySelector('#deal-type');
   const sort = document.querySelector('#sort');
+  const evidence = Array.from(document.querySelectorAll('[data-evidence]'));
+  const sourceDetails = document.querySelector('#sources');
+  const requestedEvidence = new Set((new URLSearchParams(location.search).get('evidence') || '').split(','));
+  evidence.forEach(input => { input.checked = requestedEvidence.has(input.dataset.evidence); });
+  if (location.hash === '#sources') sourceDetails.open = true;
+  document.querySelectorAll('a[href="#sources"]').forEach(link => {
+    link.addEventListener('click', () => { sourceDetails.open = true; });
+  });
   const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
   const params = new URLSearchParams(location.search);
   const validViews = ['all','today','rank','ending','archived','saved'];
@@ -53,6 +61,9 @@ export const CLIENT_SCRIPT = String.raw`
     const url = new URL(location.href);
     const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:category.value === 'all' ? '' : category.value,type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : ''};
     Object.entries(values).forEach(([key,value]) => { if(value) url.searchParams.set(key,value); else url.searchParams.delete(key); });
+    const selected = evidence.filter(input => input.checked).map(input => input.dataset.evidence);
+    if (selected.length) url.searchParams.set('evidence', selected.join(','));
+    else url.searchParams.delete('evidence');
     if (aliases[url.hash]) url.hash = '';
     try { history.replaceState(null,'',url); } catch {}
   }
@@ -74,10 +85,13 @@ export const CLIENT_SCRIPT = String.raw`
     document.querySelector('#saved-count').textContent = String(cards.filter(card => savedIds.has(card.dataset.id)).length);
   }
   function reset() {
-    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1; render(true);
+    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1;
+    evidence.forEach(input => { input.checked = false; });
+    render(true);
   }
   function render(animate) {
     const needle = q.value.trim().normalize('NFKC').toLocaleLowerCase();
+    const requiredFields = evidence.filter(input => input.checked).map(input => input.dataset.evidence + 'Known');
     const mode = state.view === 'rank' ? 'rank' : state.view === 'ending' ? 'ending' : sort.value;
     sort.disabled = state.view === 'rank' || state.view === 'ending';
     const ordered = cards.slice().sort((a,b) => {
@@ -102,6 +116,10 @@ export const CLIENT_SCRIPT = String.raw`
       if (category.value === 'finance') { if (!['bank','ucard'].includes(card.dataset.category)) return false; }
       else if (category.value !== 'all' && card.dataset.category !== category.value) return false;
       if (type.value !== 'all' && card.dataset.type !== type.value) return false;
+      if (requiredFields.length) {
+        const facts = card.querySelector('.facts').dataset;
+        if (!requiredFields.every(field => facts[field] === 'true')) return false;
+      }
       return !needle || card.dataset.search.includes(needle);
     });
     const pages = Math.max(1,Math.ceil(matched.length / PAGE_SIZE));
@@ -122,18 +140,18 @@ export const CLIENT_SCRIPT = String.raw`
     const empty = document.querySelector('#empty-state'); empty.hidden = matched.length > 0;
     const noSaved = state.view === 'saved' && !cards.some(card => savedIds.has(card.dataset.id));
     document.querySelector('#empty-title').textContent = noSaved ? '把好机会，留给稍后的自己' : state.view === 'archived' && !needle && category.value === 'all' && type.value === 'all' ? '暂时没有已结束的活动' : '暂时没有匹配的情报';
-    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : '试试更短的关键词，或清除分类与优惠类型筛选。';
+    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : '试试更短的关键词，或放宽筛选条件。';
     document.querySelector('#pagination').hidden = matched.length <= PAGE_SIZE;
     document.querySelector('#page-info').textContent = state.page+' / '+pages;
     document.querySelector('#previous-page').disabled = state.page === 1;
     document.querySelector('#next-page').disabled = state.page === pages;
     document.querySelector('#clear-search').hidden = !q.value;
-    document.querySelector('#reset-filters').hidden = !needle && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
+    document.querySelector('#reset-filters').hidden = !needle && !requiredFields.length && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
     updateBookmarks(); updateUrl(); updateLanguage();
   }
   viewButtons.forEach(button => button.addEventListener('click',() => {clearTimeout(inputTimer);state.view = button.dataset.view;state.page = 1;render(true);}));
   q.addEventListener('input',() => {clearTimeout(inputTimer);state.page = 1;inputTimer = setTimeout(() => render(true),100);} );
-  [category,type,sort].forEach(select => select.addEventListener('change',() => {clearTimeout(inputTimer);state.page=1;render(true);}));
+  [category,type,sort,...evidence].forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.page=1;render(true);}));
   document.querySelector('#clear-search').addEventListener('click',() => {clearTimeout(inputTimer);q.value='';state.page=1;render(true);q.focus();});
   document.querySelector('#reset-filters').addEventListener('click',reset);
   document.querySelector('#empty-reset').addEventListener('click',reset);
