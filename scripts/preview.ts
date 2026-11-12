@@ -16,7 +16,7 @@ const now = new Date(snapshot.generatedAt);
 const port = Number(process.env.PORT || 43118);
 
 const CSP =
-  "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'";
+  "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'self'";
 
 function send(response: import("node:http").ServerResponse, status: number, body: string, type = "text/html; charset=utf-8") {
   response.writeHead(status, {

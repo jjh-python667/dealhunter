@@ -133,11 +133,16 @@ export function renderPage(input: {
     ? `${channelInfo.description} 金额、资格与期限以来源原文为准。`
     : "全球羊毛情报中心：发现公开来源中的 AI 工具、云服务与数字优惠。支持中文阅读、原文对照、分类筛选和本机收藏。金额与资格以活动原文为准。";
   const scopeWord = channelInfo ? channelInfo.label : "全部";
+  const otherChannel = input.channel === "ai" ? CHANNELS.cloud : input.channel === "cloud" ? CHANNELS.ai : undefined;
   const channelNote = channelInfo
-    ? `<p class="collection-status"><span>${escapeHtml(channelInfo.note)}</span> <a href="/deals">查看全部情报</a></p>`
+    ? `<p class="collection-status channel-note"><span>${escapeHtml(channelInfo.note)}</span> <a href="/deals">查看全部情报</a>${otherChannel ? ` · <a href="${otherChannel.path}">前往${escapeHtml(otherChannel.label)}</a>` : ""}</p>`
     : "";
+  // Empty-state copy is channel-aware on the server (no-JS) and re-used by the
+  // shared client through these data attributes.
+  const emptyTitle = channelInfo ? channelInfo.emptyTitle : "暂时没有匹配的情报";
+  const emptyNote = channelInfo ? channelInfo.emptyNote : "试试更短的关键词，或清除分类与优惠类型筛选。";
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}" data-channel="${input.channel ?? ""}" data-snapshot-at="${input.now.getTime()}"${input.updateToken === undefined ? "" : ` data-update-token="${escapeHtml(input.updateToken)}"`}>
+<html lang="zh-CN" data-lang="${lang}" data-channel="${channelInfo ? channelInfo.category : ""}" data-snapshot-at="${input.now.getTime()}"${input.updateToken === undefined ? "" : ` data-update-token="${escapeHtml(input.updateToken)}"`}>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(pageDescription)}"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
 <body><a class="skip" href="#main">跳到优惠列表</a>${renderNav({ active: channelInfo ? channelInfo.navKey : "deals", lang })}
 <div class="shell">
@@ -155,7 +160,7 @@ export function renderPage(input: {
     <div class="results-heading" id="results-heading"><div><h2 id="view-title" tabindex="-1">全部情报</h2><p id="view-note">公开来源，原文可查。金额与资格以活动页面为准。</p></div><div class="results-meta"><span id="result-status" role="status" aria-live="polite" aria-atomic="true">共 ${scopedActive.length} 条</span><button class="text-button" id="reset-filters" type="button" hidden>清除筛选</button></div></div>
     <noscript><p class="noscript">当前显示全部记录。启用 JavaScript 后可使用分类筛选、收藏与分页。</p><style>.card[hidden]{display:block!important}.view-nav,.filter-row>label,.pagination,.evidence-filters{display:none!important}</style></noscript>
     <section class="card-grid" id="deal-list" aria-label="优惠情报">${cards}</section>
-    <section class="empty-state" id="empty-state"${scopeDeals.length ? " hidden" : ""}><div class="empty-symbol">${icon("search")}</div><h3 id="empty-title">暂时没有匹配的情报</h3><p id="empty-note">试试更短的关键词，或清除分类与优惠类型筛选。</p><button class="text-button" id="empty-reset" type="button">浏览全部情报 ${icon("arrow")}</button></section>
+    <section class="empty-state" id="empty-state"${channelInfo ? ` data-empty-title="${escapeHtml(emptyTitle)}" data-empty-note="${escapeHtml(emptyNote)}"` : ""}${scopeDeals.length ? " hidden" : ""}><div class="empty-symbol">${icon("search")}</div><h3 id="empty-title">${escapeHtml(emptyTitle)}</h3><p id="empty-note">${escapeHtml(emptyNote)}</p><button class="text-button" id="empty-reset" type="button">浏览全部情报 ${icon("arrow")}</button></section>
     <nav class="pagination" id="pagination" aria-label="列表分页" hidden><button class="page-button" id="previous-page" type="button">${icon("left")} 上一页</button><span class="page-info" id="page-info">1 / 1</span><button class="page-button" id="next-page" type="button">下一页 ${icon("right")}</button></nav>
     <details class="sources" id="sources"><summary>${icon("globe")} 来源健康与更新记录<span class="status-label">${input.checks.length ? `${ok} / ${input.checks.length} 成功` : "暂无来源记录"}</span>${icon("down")}</summary><div class="sources-body"><p>${escapeHtml(runStatus)}${checked ? ` · ${escapeHtml(lastUpdate)}` : ""}。活动资格与优惠请核对原文。</p>${sourceRows(input.checks, input.sourceSuccess)}${input.updateToken !== undefined ? '<button id="source-performance" type="button" class="text-button" hidden>查看过去 14 天的采集表现</button><div id="source-performance-results" aria-live="polite"></div>' : ""}</div></details>
     <details class="notice"><summary>关于信息、翻译与风险</summary><p>本站整理已抓取的公开来源。金额、日期、地区与条件没有写明时显示「待核实」，不补造承诺。中文标题与简介按收录原文翻译、整理，不代表重新验证活动；后台机器译文单独标注。原文变化后，旧的中文整理停止使用；没有可用译文时保留原文。Crypto、银行与卡片条目的风险和资格说明保留在详情中。来源链接去除常见跟踪与邀请参数。</p></details>

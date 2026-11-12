@@ -4,6 +4,8 @@ export const CLIENT_SCRIPT = String.raw`
 (() => {
   'use strict';
   const root = document.documentElement;
+  // Server-rendered channel scope: "ai" or "vps" on /ai-tools and /cloud, empty on /deals.
+  const channel = root.dataset.channel || '';
   const cards = Array.from(document.querySelectorAll('.card'));
   const list = document.querySelector('#deal-list');
   const q = document.querySelector('#q');
@@ -18,11 +20,20 @@ export const CLIENT_SCRIPT = String.raw`
   document.querySelectorAll('a[href="#sources"]').forEach(link => {
     link.addEventListener('click', () => { sourceDetails.open = true; });
   });
+  // Deep links from the portal navigation open the matching radar panel.
+  ['#alerts','#preferences'].forEach(anchor => {
+    if (location.hash !== anchor) return;
+    const panel = document.querySelector(anchor);
+    if (panel) panel.open = true;
+  });
   const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
   const params = new URLSearchParams(location.search);
   const validViews = ['all','today','for-you','rank','ending','archived','saved'];
   const titles = {all:'全部情报',today:'今日更新','for-you':'适合我',new:'回访新增',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
   const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类。没有发布时间时采用首次收录时间。','for-you':'按「我的偏好」筛选原文明示的条件。',new:'按首次收录时间，显示自上次访问以来仍在册的情报。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏保存在当前浏览器，包含已归档的记录。'};
+  const emptyPanel = document.querySelector('#empty-state');
+  const defaultEmptyTitle = (emptyPanel && emptyPanel.dataset.emptyTitle) || '暂时没有匹配的情报';
+  const defaultEmptyNote = (emptyPanel && emptyPanel.dataset.emptyNote) || '试试更短的关键词，或清除分类与优惠类型筛选。';
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const PAGE_SIZE = 12;
   let savedIds = new Set();
@@ -79,13 +90,18 @@ export const CLIENT_SCRIPT = String.raw`
   const aliases = {'#sec-a':['today','all'],'#sec-b':['rank','all'],'#sec-c':['all','ai'],'#sec-d':['all','crypto'],'#sec-e':['all','finance'],'#sec-f':['all','vps'],'#sec-g':['ending','all'],'#sec-h':['archived','all']};
   const legacy = aliases[location.hash];
   if (legacy && !params.has('view')) state.view = legacy[0];
+  // The category control is hidden on channel pages and may be removed entirely;
+  // every read/write below must survive it being missing.
+  const categoryValue = () => category ? category.value : 'all';
   function setSelect(select, value) {
+    if (!select) return;
     if (Array.from(select.options).some(option => option.value === value)) select.value = value;
   }
   q.value = (params.get('q') || '').slice(0,160);
-  setSelect(category, params.get('category') || (legacy && legacy[1]) || 'all');
+  setSelect(category, channel ? 'all' : params.get('category') || (legacy && legacy[1]) || 'all');
   setSelect(type, params.get('type') || 'all');
   setSelect(sort, params.get('sort') || 'newest');
+  if (params.get('focus') === 'search') q.focus();
   function announce(message) {
     const toast = document.querySelector('#toast');
     clearTimeout(toastTimer);
@@ -94,7 +110,7 @@ export const CLIENT_SCRIPT = String.raw`
   }
   function updateUrl() {
     const url = new URL(location.href);
-    const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:category.value === 'all' ? '' : category.value,type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : '',offer:state.offer};
+    const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:categoryValue() === 'all' ? '' : categoryValue(),type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : '',offer:state.offer};
     Object.entries(values).forEach(([key,value]) => { if(value) url.searchParams.set(key,value); else url.searchParams.delete(key); });
     const selected = evidence.filter(input => input.checked).map(input => input.dataset.evidence);
     if (selected.length) url.searchParams.set('evidence', selected.join(','));
@@ -120,7 +136,7 @@ export const CLIENT_SCRIPT = String.raw`
     document.querySelector('#saved-count').textContent = String(cards.filter(card => savedIds.has(card.dataset.id)).length);
   }
   function reset() {
-    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1; state.offer = '';
+    clearTimeout(inputTimer); q.value = ''; if (category) category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1; state.offer = '';
     evidence.forEach(input => { input.checked = false; });
     render(true);
   }
@@ -148,6 +164,7 @@ export const CLIENT_SCRIPT = String.raw`
     const matched = ordered.filter(card => {
       const sections = card.dataset.sections.split(' ');
       const archived = card.dataset.archived === 'true';
+      if (channel && card.dataset.category !== channel) return false;
       if (state.offer) return card.dataset.id === state.offer;
       if (state.view === 'all' && archived) return false;
       if (state.view === 'for-you' && !recommended.has(card)) return false;
@@ -157,8 +174,9 @@ export const CLIENT_SCRIPT = String.raw`
       if (state.view === 'ending' && !sections.includes('G')) return false;
       if (state.view === 'archived' && !archived) return false;
       if (state.view === 'saved' && !savedIds.has(card.dataset.id)) return false;
-      if (category.value === 'finance') { if (!['bank','ucard'].includes(card.dataset.category)) return false; }
-      else if (category.value !== 'all' && card.dataset.category !== category.value) return false;
+      const chosenCategory = categoryValue();
+      if (chosenCategory === 'finance') { if (!['bank','ucard'].includes(card.dataset.category)) return false; }
+      else if (chosenCategory !== 'all' && card.dataset.category !== chosenCategory) return false;
       if (type.value !== 'all' && card.dataset.type !== type.value) return false;
       if (requiredFields.length) {
         const facts = factsByCard.get(card);
@@ -195,19 +213,19 @@ export const CLIENT_SCRIPT = String.raw`
     viewButtons.forEach(button => button.setAttribute('aria-pressed',String(button.dataset.view === state.view)));
     const empty = document.querySelector('#empty-state'); empty.hidden = matched.length > 0;
     const noSaved = state.view === 'saved' && !cards.some(card => savedIds.has(card.dataset.id));
-    document.querySelector('#empty-title').textContent = noSaved ? '把好机会，留给稍后的自己' : state.view === 'archived' && !needle && category.value === 'all' && type.value === 'all' ? '暂时没有已结束的活动' : '暂时没有匹配的情报';
-    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : state.view === 'for-you' ? '在「我的偏好」选择关注条件，或放宽现有条件。' : '试试更短的关键词，或放宽筛选条件。';
+    document.querySelector('#empty-title').textContent = noSaved ? '把好机会，留给稍后的自己' : state.view === 'archived' && !needle && categoryValue() === 'all' && type.value === 'all' ? '暂时没有已结束的活动' : defaultEmptyTitle;
+    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : state.view === 'for-you' ? '在「我的偏好」选择关注条件，或放宽现有条件。' : defaultEmptyNote;
     document.querySelector('#pagination').hidden = matched.length <= PAGE_SIZE;
     document.querySelector('#page-info').textContent = state.page+' / '+pages;
     document.querySelector('#previous-page').disabled = state.page === 1;
     document.querySelector('#next-page').disabled = state.page === pages;
     document.querySelector('#clear-search').hidden = !q.value;
-    document.querySelector('#reset-filters').hidden = !state.offer && !needle && !requiredFields.length && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
+    document.querySelector('#reset-filters').hidden = !state.offer && !needle && !requiredFields.length && categoryValue() === 'all' && type.value === 'all' && sort.value === 'newest';
     updateBookmarks(); updateUrl(); updateLanguage();
   }
   viewButtons.forEach(button => button.addEventListener('click',() => {clearTimeout(inputTimer);state.view = button.dataset.view;state.offer = '';state.page = 1;render(true);}));
   q.addEventListener('input',() => {clearTimeout(inputTimer);state.offer='';state.page = 1;inputTimer = setTimeout(() => render(true),100);} );
-  [category,type,sort,...evidence].forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.offer='';state.page=1;render(true);}));
+  [category,type,sort,...evidence].filter(Boolean).forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.offer='';state.page=1;render(true);}));
   document.querySelector('#clear-search').addEventListener('click',() => {clearTimeout(inputTimer);q.value='';state.page=1;render(true);q.focus();});
   document.querySelector('#reset-filters').addEventListener('click',reset);
   document.querySelector('#empty-reset').addEventListener('click',reset);

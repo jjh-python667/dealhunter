@@ -132,3 +132,20 @@ test("payment and renewal flags require source evidence and surface conflicting 
   assert.equal(offerRevision(offer, evidence), offerRevision({ ...offer, lastVerifiedAt: "2026-11-12" }, evidence));
   assert.notEqual(offerRevision(offer, evidence), offerRevision(conflict, offerEvidence(conflict)));
 });
+
+test("the shared navigation and canonical detail links are rendered on the dashboard", () => {
+  const html = page([deal("linked")]);
+  assert.match(html, /<header class="topnav" data-active="deals">/);
+  assert.match(html, /<a class="card-title-link" href="\/deal\/linked">/);
+  assert.match(html, /<a class="detail-link" href="\/deal\/linked">查看详情/);
+  assert.match(html, /<html[^>]*data-channel=""/);
+});
+
+test("the plain /deals dashboard keeps its category filter and all categories", () => {
+  const rows = [deal("ai", { category: "ai" }), deal("vps", { category: "vps" })];
+  const html = page(rows);
+  assert.match(html, /<label class="select-wrap"><span>分类<\/span><select id="category"/);
+  assert.doesNotMatch(html, /class="select-wrap channel-hidden"/);
+  assert.equal((html.match(/<article /g) || []).length, 2);
+  assert.doesNotMatch(html, /data-nav="[a-z-]+" aria-current="page"/);
+});

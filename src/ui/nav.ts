@@ -67,6 +67,7 @@ export const NAV_CSS = String.raw`
 .topnav-lang-link[aria-current="true"]{background:#e9bd761d;color:var(--gold)}
 @media(max-width:1000px){.topnav-inner{gap:16px;padding:8px 24px}.topnav-tool span{display:none}.topnav-tool{padding:6px 8px}}
 @media(max-width:720px){.topnav-inner{gap:10px;padding:8px 16px;min-height:56px}.topnav-wordmark small{display:none}.topnav-mark{width:30px;height:30px}.topnav-primary{gap:2px}.topnav-link{padding:8px 9px;font-size:12px;min-height:40px}.topnav-langs{display:none}}
+@media(max-width:480px){.topnav-wordmark{display:none}.topnav-inner{padding:8px 12px;gap:8px}.topnav-link{padding:8px 8px}}
 @media(max-width:420px){.topnav-wordmark strong{font-size:13px}.topnav-link{padding:8px 7px}.topnav-tools{gap:4px}.topnav-tool{min-height:40px}}
 @media(prefers-reduced-motion:reduce){.topnav{backdrop-filter:none;-webkit-backdrop-filter:none}}
 `;

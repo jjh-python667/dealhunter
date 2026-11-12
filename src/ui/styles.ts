@@ -46,4 +46,17 @@ export const PAGE_CSS = String.raw`
 @keyframes title-opening{from{clip-path:inset(100% 0 0 0);transform:translate3d(0,26px,0) scaleY(.72)}to{clip-path:inset(0 0 0 0);transform:none}}
 @keyframes panel-opening{from{clip-path:inset(0 0 100% 0);transform:translate3d(0,11px,0)}to{clip-path:inset(0 0 0 0);transform:none}}
 @keyframes card-reveal{from{clip-path:inset(0 0 16% 0 round 14px);transform:translate3d(0,12px,0)}to{clip-path:inset(0 0 0 0 round 14px);transform:none}}
+/* --- Portal / channel layer: appended only, the rules above stay untouched. --- */
+.card-title-link{color:inherit;text-decoration:none}
+.card-title-link:hover{color:var(--gold);text-decoration:underline;text-underline-offset:3px}
+.card h3 .card-title-link{font-weight:inherit}
+.detail-link{display:inline-flex;align-items:center;gap:5px;min-height:44px;flex-shrink:0;color:var(--muted);font-size:12px;white-space:nowrap}
+.detail-link svg{width:14px;height:14px}
+.detail-link:hover{color:var(--gold);text-decoration:none}
+.channel-note{margin-top:-2px}
+.channel-hidden{display:none!important}
+html{scroll-padding-top:88px}
+@media(min-width:901px){.sidebar{top:90px;height:calc(100dvh - 118px)}}
+@media(max-width:900px){html{scroll-padding-top:70px}}
+@media(max-width:600px){.detail-link{font-size:11px;gap:4px}.detail-link svg{width:13px;height:13px}}
 `;
