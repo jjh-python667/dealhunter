@@ -80,6 +80,24 @@ export const DETAIL_CSS = String.raw`
 .official-link{overflow-wrap:anywhere;word-break:break-all}
 .evidence-list dd.risk-inline{color:#e2b8b4}
 
+.detail-feedback{margin-top:2px;padding:14px 16px;border:1px solid var(--line);border-radius:13px;background:#0f1922;display:grid;gap:9px;min-width:0}
+.feedback-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 14px}
+.feedback-head h2{font-size:15px;margin:0;letter-spacing:-.01em}
+.feedback-head p{margin:0;color:var(--muted);font-size:11px}
+.feedback-public{margin:0;color:#cbd7e1;font-size:12px;line-height:1.7}
+.feedback-public span{display:block;margin-top:2px;color:var(--muted);font-size:11px}
+.feedback-public.positive{color:var(--cyan)}
+.feedback-public.conflict{color:var(--gold)}
+.feedback-form{display:grid;gap:8px;min-width:0}
+.feedback-form fieldset{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0;padding:0;border:0;min-width:0}
+.feedback-form legend{padding:0;margin-bottom:2px;color:var(--muted);font-size:11px}
+.feedback-form label{display:inline-flex;align-items:center;gap:6px;min-height:38px;font-size:12px;color:#d5e0e8;cursor:pointer}
+.feedback-form input{width:16px;height:16px;margin:0;accent-color:var(--gold)}
+.feedback-submit{justify-self:start;min-height:40px;padding:8px 18px;border:1px solid #e9bd7640;border-radius:9px;background:#e9bd7618;color:var(--gold);font-size:12px}
+.feedback-submit:disabled{opacity:.55;cursor:wait}
+.feedback-status{margin:0;min-height:17px;color:var(--gold);font-size:11px}
+.feedback-note{margin:0;color:var(--muted);font-size:11px;line-height:1.7}
+
 .detail-footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 18px;margin-top:36px;padding-top:18px;border-top:1px solid var(--line);color:#7e91a3;font-size:11px}
 .detail-footer p{margin:0}
 .detail-footer a{color:#afc3d1}
@@ -97,6 +115,8 @@ export const DETAIL_CSS = String.raw`
   .vital-official{grid-column:auto}
   .official-cta{width:100%}
   .detail-action{flex:1 1 calc(50% - 5px);justify-content:center}
+  .detail-feedback{padding:12px 13px}
+  .feedback-submit{width:100%;justify-self:stretch}
   .section-head{display:block}
   .section-head p{margin-top:4px}
   .detail-footer{flex-direction:column}

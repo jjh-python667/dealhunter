@@ -1,6 +1,7 @@
 import { chineseCopy } from "../content/locale";
 import { offerEvidence } from "../content/evidence";
 import { formatWhen, isExpired, showSchedule } from "../extract";
+import { EMPTY_FEEDBACK, dealTermsVersion, type FeedbackSummary } from "../feedback";
 import { CATEGORY_LABEL, DEAL_TYPE_LABEL, show } from "../labels";
 import { escapeHtml } from "../text";
 import type { DealRecord } from "../types";
@@ -16,6 +17,8 @@ export type DetailInput = {
   lang?: "zh" | "en";
   origin?: string;
   preview?: boolean;
+  /** 72h public aggregate; never contains browser or network hashes. */
+  feedback?: FeedbackSummary;
 };
 
 type DealStatus = "active" | "ended" | "archived";
@@ -86,6 +89,28 @@ export function renderDealDetail(input: DetailInput): string {
 
   const actions = `<div class="detail-actions"><button class="detail-action bookmark" type="button" data-id="${escapeHtml(deal.id)}" aria-pressed="false" aria-label="收藏这条情报" title="收藏到此浏览器">${icon("bookmark")}<span>收藏</span></button><button class="detail-action share" type="button" data-share aria-label="复制这条优惠的链接">${icon("share")}<span>分享</span></button></div>`;
 
+  const feedback = input.feedback ?? EMPTY_FEEDBACK;
+  const termsVersion = dealTermsVersion(deal);
+  const feedbackPublic = feedback.display === "positive"
+    ? '<p class="feedback-public positive">近三天有访客反馈可领取。<span>领取结果因地区和资格而异，请核对官方条款。</span></p>'
+    : feedback.display === "conflict"
+      ? '<p class="feedback-public conflict">近期反馈存在冲突，正在人工复核；请以官方页面为准。</p>'
+      : '<p class="feedback-public">还没有足够反馈。你的反馈会先用于审核。</p>';
+  const feedbackBlock = `<section class="detail-feedback" data-deal-id="${escapeHtml(deal.id)}" data-terms-version="${escapeHtml(termsVersion)}" aria-labelledby="feedback-title">
+    <div class="feedback-head"><h2 id="feedback-title">领取状态反馈</h2><p>匿名反馈，不收集账号；同一版本每人一次。</p></div>
+    ${feedbackPublic}
+    <form class="feedback-form">
+      <fieldset><legend>你刚才实际遇到的情况</legend>
+        <label><input type="radio" name="vote" value="works"> 还能领</label>
+        <label><input type="radio" name="vote" value="expired"> 已失效</label>
+        <label><input type="radio" name="vote" value="unknown"> 不确定</label>
+      </fieldset>
+      <button type="submit" class="feedback-submit">提交反馈</button>
+      <p class="feedback-status" role="status" aria-live="polite"></p>
+    </form>
+    <p class="feedback-note">实际完成领取时选「还能领」；官方页面明确结束或入口关闭时选「已失效」；遇到地区限制、资格不符、登录失败或暂时无法判断时选「不确定」。反馈只用于补充核验，不会自动改变活动状态。</p>
+  </section>`;
+
   const costs = `<section class="detail-section" id="costs" aria-labelledby="costs-title"><div class="section-head"><h2 id="costs-title">费用与规则</h2><p>只列来源原文明确写出的条件；没有写到的标为「待核实」。</p></div><dl class="detail-dl"><div><dt>是否需要绑卡或付款方式</dt><dd>${evidenceLabel(proof.card, "需要付款方式", "无需绑卡", proof.paymentQuote)}</dd></div><div><dt>是否自动续费或转付费</dt><dd>${evidenceLabel(proof.renewal, "自动续费或转付费", "无自动续费", proof.renewalQuote)}</dd></div><div><dt>试用后价格或计费（原文）</dt><dd>${escapeHtml(show(proof.followup))}</dd></div></dl></section>`;
 
   const stepsSource = deal.steps.trim();
@@ -117,7 +142,8 @@ export function renderDealDetail(input: DetailInput): string {
       <div class="vital vital-official"><dt>官方入口</dt><dd class="official-row">${officialCta}${officialNote}</dd></div>
     </dl>
     ${actions}
-    <noscript><p class="noscript">收藏与分享需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>
+    ${feedbackBlock}
+    <noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>
   </article>
   ${costs}
   ${steps}
@@ -200,5 +226,64 @@ export const DETAIL_SCRIPT = String.raw`
       }
     });
   });
+  var feedbackBox = document.querySelector(".detail-feedback");
+  if (feedbackBox) {
+    var feedbackForm = feedbackBox.querySelector(".feedback-form");
+    var feedbackStatus = feedbackBox.querySelector(".feedback-status");
+    var feedbackSubmit = feedbackBox.querySelector(".feedback-submit");
+    var feedbackDeal = feedbackBox.getAttribute("data-deal-id") || "";
+    var feedbackVersion = feedbackBox.getAttribute("data-terms-version") || "";
+    function feedbackBrowserId() {
+      var key = "dh-feedback-id";
+      try {
+        var existing = localStorage.getItem(key);
+        if (existing && /^[A-Za-z0-9_-]{16,80}$/.test(existing)) return existing;
+        var generated = (window.crypto && window.crypto.randomUUID)
+          ? window.crypto.randomUUID().replace(/-/g, "")
+          : String(Date.now()) + Math.random().toString(36).slice(2);
+        localStorage.setItem(key, generated);
+        return generated;
+      } catch (error) {
+        return "anon" + String(Date.now()) + Math.random().toString(36).slice(2);
+      }
+    }
+    if (feedbackForm) {
+      feedbackForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var checked = feedbackForm.querySelector("input[name=vote]:checked");
+        if (!checked) {
+          feedbackStatus.textContent = "请先选择一种情况。";
+          return;
+        }
+        feedbackSubmit.disabled = true;
+        feedbackStatus.textContent = "正在提交…";
+        fetch("/api/feedback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ dealId: feedbackDeal, termsVersion: feedbackVersion, vote: checked.value, browserId: feedbackBrowserId() })
+        }).then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (data) {
+            return { status: response.status, ok: response.ok, data: data };
+          });
+        }).then(function (result) {
+          if (result.ok) {
+            feedbackStatus.textContent = result.data && result.data.created === false ? "你已反馈过这版优惠。" : "已收到你的反馈。";
+          } else if (result.status === 409) {
+            feedbackStatus.textContent = "优惠已经更新，请刷新页面后再反馈。";
+          } else if (result.status === 429) {
+            feedbackStatus.textContent = "操作过于频繁，请稍后再试。";
+          } else if (result.status === 404) {
+            feedbackStatus.textContent = "这条优惠暂时不存在。";
+          } else {
+            feedbackStatus.textContent = "提交结果未知，请重试。";
+          }
+        }).catch(function () {
+          feedbackStatus.textContent = "提交结果未知，请重试。";
+        }).then(function () {
+          feedbackSubmit.disabled = false;
+        });
+      });
+    }
+  }
 })();
 `;

@@ -1,5 +1,6 @@
 import { isCategory, isDealType } from "./labels";
 import type { ValueTier } from "./labels";
+import { summarizeFeedback, type FeedbackAggregateRow, type FeedbackSummary } from "./feedback";
 import type { DealRecord, RunRecord, SourceCheck } from "./types";
 
 export interface QueryStatement {
@@ -120,6 +121,88 @@ export async function getDeal(db: QueryDb, id: string): Promise<DealRecord | nul
     .bind(id)
     .first<DealRow>();
   return row ? mapDeal(row) : null;
+}
+
+export type RecordFeedbackInput = {
+  dealId: string;
+  termsVersion: string;
+  vote: string;
+  browserHash: string;
+  networkHash: string;
+  createdAt: string;
+};
+
+/** Idempotent insert: the unique index makes retries and duplicate votes no-ops. */
+export async function recordFeedback(db: QueryDb, input: RecordFeedbackInput): Promise<"inserted" | "duplicate"> {
+  const row = await db
+    .prepare(
+      `INSERT INTO deal_feedback (deal_id, terms_version, vote, browser_hash, network_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(deal_id, terms_version, browser_hash) DO NOTHING
+       RETURNING id`,
+    )
+    .bind(input.dealId, input.termsVersion, input.vote, input.browserHash, input.networkHash, input.createdAt)
+    .first<{ id: number }>();
+  return row ? "inserted" : "duplicate";
+}
+
+export type FeedbackAggregate = { summary: FeedbackSummary; rows: FeedbackAggregateRow[] };
+
+/**
+ * Aggregate only: distinct browser/network counts and the latest timestamp per
+ * vote. Review-held or hidden rows never influence the public summary.
+ */
+export async function feedbackSummaryForDeal(
+  db: QueryDb,
+  dealId: string,
+  termsVersion: string,
+  since: string,
+): Promise<FeedbackAggregate> {
+  const result = await db
+    .prepare(
+      `SELECT vote,
+              COUNT(*) AS total,
+              COUNT(DISTINCT browser_hash) AS browsers,
+              COUNT(DISTINCT network_hash) AS networks,
+              MAX(created_at) AS last_at
+       FROM deal_feedback
+       WHERE deal_id = ? AND terms_version = ? AND created_at >= ?
+         AND review_status IN ('pending', 'kept')
+       GROUP BY vote`,
+    )
+    .bind(dealId, termsVersion, since)
+    .all<{ vote: string; total: number; browsers: number; networks: number; last_at: string | null }>();
+  const rows: FeedbackAggregateRow[] = (result.results ?? []).map((row) => ({
+    vote: row.vote,
+    total: Number(row.total) || 0,
+    browsers: Number(row.browsers) || 0,
+    networks: Number(row.networks) || 0,
+    last_at: row.last_at ?? null,
+  }));
+  return { summary: summarizeFeedback(rows), rows };
+}
+
+export async function feedbackCountForBrowser(db: QueryDb, browserHash: string, since: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM deal_feedback WHERE browser_hash = ? AND created_at >= ?`)
+    .bind(browserHash, since)
+    .first<{ n: number }>();
+  return Number(row?.n ?? 0);
+}
+
+/** Operator decision. Only "kept" and "held" are exposed; nothing is ever deleted. */
+export async function reviewFeedback(
+  db: QueryDb,
+  input: { id: number; status: "kept" | "held"; note: string; reviewedAt: string },
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `UPDATE deal_feedback SET review_status = ?, review_note = ?, reviewed_at = ?
+       WHERE id = ? RETURNING id`,
+    )
+    .bind(input.status, input.note, input.reviewedAt, input.id)
+    .first<{ id: number }>();
+  return Boolean(row);
 }
 
 export async function activeIdsForSource(db: QueryDb, sourceId: string): Promise<string[]> {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { dealTermsVersion, feedbackHashes } from "../src/feedback";
 import worker from "../src/index";
 import type { DealRecord } from "../src/types";
 
@@ -35,6 +36,19 @@ function rowOf(entry: DealRecord) {
   };
 }
 
+type FakeFeedback = {
+  id: number;
+  dealId: string;
+  termsVersion: string;
+  vote: string;
+  browserHash: string;
+  networkHash: string;
+  createdAt: string;
+  reviewStatus: string;
+  reviewNote: string;
+  reviewedAt: string | null;
+};
+
 class FakeStatement {
   constructor(private db: FakeDb, private sql: string, private params: unknown[] = []) {}
   bind(...values: unknown[]) {
@@ -48,9 +62,56 @@ class FakeStatement {
       const entry = this.db.deals.find(candidate => candidate.id === id);
       return (entry ? rowOf(entry) : null) as T | null;
     }
+    if (sql.includes("INSERT INTO deal_feedback")) {
+      const [dealId, termsVersion, vote, browserHash, networkHash, createdAt] = this.params.map(String);
+      if (this.db.feedback.some(row => row.dealId === dealId && row.termsVersion === termsVersion && row.browserHash === browserHash)) {
+        return null;
+      }
+      const id = this.db.feedbackSeq + 1;
+      this.db.feedbackSeq = id;
+      this.db.feedback.push({
+        id, dealId: dealId!, termsVersion: termsVersion!, vote: vote!, browserHash: browserHash!,
+        networkHash: networkHash!, createdAt: createdAt!, reviewStatus: "pending", reviewNote: "", reviewedAt: null,
+      });
+      return { id } as T;
+    }
+    if (sql.includes("FROM deal_feedback") && sql.includes("COUNT(*)")) {
+      const [browserHash, since] = this.params.map(String);
+      const n = this.db.feedback.filter(row => row.browserHash === browserHash && row.createdAt >= since!).length;
+      return { n } as T;
+    }
+    if (sql.includes("UPDATE deal_feedback SET review_status")) {
+      const [status, note, reviewedAt, id] = this.params;
+      const row = this.db.feedback.find(candidate => candidate.id === Number(id));
+      if (!row) return null;
+      row.reviewStatus = String(status);
+      row.reviewNote = String(note);
+      row.reviewedAt = String(reviewedAt);
+      return { id: row.id } as T;
+    }
     return null;
   }
   async all<T>(): Promise<{ results: T[] }> {
+    if (this.sql.includes("FROM deal_feedback") && this.sql.includes("GROUP BY vote")) {
+      const [dealId, termsVersion, since] = this.params.map(String);
+      const rows = this.db.feedback.filter(row =>
+        row.dealId === dealId && row.termsVersion === termsVersion && row.createdAt >= since! &&
+        (row.reviewStatus === "pending" || row.reviewStatus === "kept"));
+      const results = (["works", "expired", "unknown"] as const)
+        .map(vote => {
+          const subset = rows.filter(row => row.vote === vote);
+          if (!subset.length) return null;
+          return {
+            vote,
+            total: subset.length,
+            browsers: new Set(subset.map(row => row.browserHash)).size,
+            networks: new Set(subset.map(row => row.networkHash)).size,
+            last_at: subset[subset.length - 1]!.createdAt,
+          };
+        })
+        .filter(Boolean) as T[];
+      return { results };
+    }
     if (this.sql.includes("FROM deals") && this.sql.includes("ORDER BY COALESCE")) {
       return { results: this.db.deals.map(rowOf) as T[] };
     }
@@ -62,6 +123,8 @@ class FakeStatement {
 }
 
 class FakeDb {
+  feedback: FakeFeedback[] = [];
+  feedbackSeq = 0;
   constructor(public deals: DealRecord[], public failDetail = false) {}
   prepare(sql: string) {
     return new FakeStatement(this, sql);
@@ -151,4 +214,130 @@ test("public APIs still answer without touching the portal routes", async () => 
   const payload = (await board.json()) as { board: { activeCount: number } };
   assert.equal(payload.board.activeCount, 2);
   assert.equal((await fetchPath("/api/nope")).status, 404);
+});
+
+/* ---------------------------------------------------------------------- */
+/* Anonymous "can I still claim it?" feedback                              */
+/* ---------------------------------------------------------------------- */
+
+const FEEDBACK_BROWSER = "browser-test-0000001";
+
+function feedbackBody(deal: DealRecord = aiDeal, vote = "works", browserId = FEEDBACK_BROWSER) {
+  return { dealId: deal.id, termsVersion: dealTermsVersion(deal), vote, browserId };
+}
+
+async function postFeedback(body: unknown, customEnv: Env = env): Promise<Response> {
+  return worker.fetch!(new Request("https://dealhunter.example/api/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }), customEnv);
+}
+
+async function postReview(body: unknown, customEnv: Env, token?: string): Promise<Response> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return worker.fetch!(new Request("https://dealhunter.example/api/admin/feedback/review", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  }), customEnv);
+}
+
+test("feedback is stored anonymously and shown as an idempotent form on the detail page", async () => {
+  const db = new FakeDb(deals);
+  const localEnv = { DB: db } as unknown as Env;
+  const first = await postFeedback(feedbackBody(), localEnv);
+  assert.equal(first.status, 200);
+  const firstData = (await first.json()) as { ok: boolean; created: boolean; summary: { works: number; display: string } };
+  assert.equal(firstData.ok, true);
+  assert.equal(firstData.created, true);
+  assert.equal(firstData.summary.works, 1);
+  assert.equal(firstData.summary.display, "none");
+  assert.equal(db.feedback.length, 1);
+
+  const duplicate = await postFeedback(feedbackBody(), localEnv);
+  assert.equal(duplicate.status, 200);
+  const duplicateData = (await duplicate.json()) as { created: boolean };
+  assert.equal(duplicateData.created, false);
+  assert.equal(db.feedback.length, 1);
+
+  const detail = await worker.fetch!(new Request("https://dealhunter.example/deal/ai-deal-1"), localEnv);
+  const html = await detail.text();
+  assert.match(html, /领取状态反馈/);
+  assert.match(html, /data-terms-version="[a-z0-9]+"/);
+  for (const vote of ["works", "expired", "unknown"]) assert.match(html, new RegExp(`value="${vote}"`));
+  assert.match(html, /还没有足够反馈/);
+});
+
+test("feedback rejects invalid payloads and stale versions without writing", async () => {
+  const db = new FakeDb(deals);
+  const localEnv = { DB: db } as unknown as Env;
+  const invalidVote = await postFeedback(feedbackBody(aiDeal, "maybe"), localEnv);
+  assert.equal(invalidVote.status, 400);
+  assert.equal(((await invalidVote.json()) as { error: string }).error, "invalid_vote");
+
+  const invalidBrowser = await postFeedback({ ...feedbackBody(), browserId: "short" }, localEnv);
+  assert.equal(invalidBrowser.status, 400);
+  assert.equal(((await invalidBrowser.json()) as { error: string }).error, "invalid_browser");
+
+  const unknownDeal = await postFeedback({ ...feedbackBody(), dealId: "nope-deal" }, localEnv);
+  assert.equal(unknownDeal.status, 404);
+
+  const stale = await postFeedback({ ...feedbackBody(), termsVersion: "stale0version" }, localEnv);
+  assert.equal(stale.status, 409);
+  assert.equal(((await stale.json()) as { error: string }).error, "stale_version");
+  assert.equal(db.feedback.length, 0);
+
+  const getAttempt = await worker.fetch!(new Request("https://dealhunter.example/api/feedback"), localEnv);
+  assert.equal(getAttempt.status, 405);
+
+  const invalidJson = await worker.fetch!(new Request("https://dealhunter.example/api/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{not json",
+  }), localEnv);
+  assert.equal(invalidJson.status, 400);
+});
+
+test("only the admin token can move a feedback row into review", async () => {
+  const db = new FakeDb(deals);
+  const unconfigured = { DB: db } as unknown as Env;
+  const seed = await postFeedback(feedbackBody(), unconfigured);
+  assert.equal(seed.status, 200);
+  const id = db.feedback[0]!.id;
+
+  const noToken = await postReview({ id, status: "held", note: "official page says ended" }, unconfigured);
+  assert.equal(noToken.status, 503);
+
+  const configured = { DB: db, ADMIN_TOKEN: "test-admin-token" } as unknown as Env;
+  const wrongToken = await postReview({ id, status: "held" }, configured, "wrong-token");
+  assert.equal(wrongToken.status, 401);
+
+  const accepted = await postReview({ id, status: "held", note: "official page says ended" }, configured, "test-admin-token");
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), { ok: true });
+  assert.equal(db.feedback[0]!.reviewStatus, "held");
+  assert.equal(db.feedback[0]!.reviewNote, "official page says ended");
+
+  const missing = await postReview({ id: 999, status: "held" }, configured, "test-admin-token");
+  assert.equal(missing.status, 404);
+});
+
+test("a burst from one browser is rate limited before another row is written", async () => {
+  const db = new FakeDb(deals);
+  const localEnv = { DB: db } as unknown as Env;
+  const { browserHash } = await feedbackHashes({ browserId: FEEDBACK_BROWSER, networkKey: "unknown", now: new Date() });
+  for (let index = 0; index < 3; index += 1) {
+    db.feedback.push({
+      id: index + 1, dealId: `other-deal-${index}`, termsVersion: "abc123", vote: "works",
+      browserHash, networkHash: `network-${index}`, createdAt: new Date().toISOString(),
+      reviewStatus: "pending", reviewNote: "", reviewedAt: null,
+    });
+  }
+  db.feedbackSeq = 3;
+  const response = await postFeedback(feedbackBody(), localEnv);
+  assert.equal(response.status, 429);
+  assert.equal(((await response.json()) as { error: string }).error, "rate_limited");
+  assert.equal(db.feedback.length, 3);
 });

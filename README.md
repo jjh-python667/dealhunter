@@ -40,7 +40,7 @@ npm run preview
 
 生产入口仍是 `src/index.ts`。路由解析在 `src/routes.ts`，看板布局在 `src/page.ts`，门户首页在 `src/ui/home.ts`，详情页在 `src/ui/detail.ts`，顶部导航与共享卡片在 `src/ui/nav.ts`、`src/ui/shared.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
 
-门户版开发验收：120 项测试、类型检查、Worker 本地打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
+本轮验证：134 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。领取反馈另做了本机真实 HTTP 验收（去重、限流、条款版本失效、管理员复核）。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
 
 GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和本地打包检查。
 
@@ -77,6 +77,7 @@ node scripts/bench-snapshots.cjs
 - 精选只从「仍在有效期内、来源原文写明优惠力度与至少一项资格/期限信息」的条目里挑；证据不足时整段留空，不补造。
 - 首屏标题用遮罩揭开和位移归位，精选卡错峰进场；系统开启「减少动态效果」时全部关闭。详情页有 canonical 和 og 标签，链接可直接分享。
 - 搜索表单使用普通 GET 提交，CSP 由 `form-action 'none'` 放宽为 `form-action 'self'`，无 JavaScript 也能跳到 `/deals`。
+- 详情页有匿名「领取状态反馈」：还能领 / 已失效 / 不确定；按优惠条款版本去重，并为公开提示单独设置了去重、限流和人工复核门槛。详见下方「领取状态反馈」。
 
 ![门户首页（桌面，本机预览）](docs/screenshots/portal-home-desktop.jpg)
 
@@ -99,6 +100,17 @@ npm run preview
 4. 详情页往下是费用与规则（绑卡、自动续费、试用后计费）、领取步骤、原文证据；来源没写的内容显示「待核实」。
 5. 手机验收：浏览器开发者工具切到 390px 宽（或真机），重复 1–3，重点看首屏四要素完整、没有横向滚动条。
 6. 旧链接验收：打开 `/?view=saved` 应自动跳到 `/deals?view=saved`；打开 `/?offer=<旧优惠 id>` 也应回到 `/deals` 并展开对应条目。
+
+### 领取状态反馈（本次新增，待上线）
+
+详情页官方入口下方有一块「领取状态反馈」：三选一（还能领 / 已失效 / 不确定），无需登录。
+
+- 提交按「优惠 ID + 条款版本 + 浏览器随机标识」去重；同一版本重复提交返回「你已反馈过这版优惠」，不会重复计票。
+- 限流：同一浏览器 10 分钟内最多 3 次、24 小时内最多 10 次。原始 IP 不落库，只用于当天的短期网络分组摘要。
+- 公开提示只统计最近 72 小时、当前条款版本、未被人工压下的反馈；至少 3 个不同浏览器且来自 2 个网络分组才显示「近三天有访客反馈可领取」。2 个不同网络分组反馈「已失效」时暂停正向提示，进入人工复核。
+- 公开页面只显示汇总提示，不显示提交者标识或网络标识。审核用 `POST /api/admin/feedback/review`（同一个 `ADMIN_TOKEN`）把单条反馈标记为 `kept` / `held`。
+- `migrations/0003_feedback.sql` 是新增表；部署前需要应用到 D1。本轮只写代码，**没有操作远程数据库、没有部署**。
+- 本机预览里的反馈只存在内存中，刷新预览进程即清空，方便试用，不写入 D1。
 
 ### 个性化优惠雷达
 
@@ -126,7 +138,7 @@ Cron / 管理接口
     → src/collect.ts 逐个抓取种子源（最多读 160KB）
     → src/parse.ts 解析 RSS/Atom（每源最多 15 条，每条最多 12KB）
     → src/extract.ts 判断是不是优惠、抽日期、金额、条件、地区
-    → 本地或远程 D1（deals / runs / source_checks）
+    → 本地或远程 D1（deals / runs / source_checks；领取反馈另存 deal_feedback）
     → src/page.ts 渲染中文看板
 ```
 
@@ -143,6 +155,8 @@ Cron / 管理接口
 写入只有：
 
 - `POST /api/admin/collect`，请求头 `Authorization: Bearer <ADMIN_TOKEN>` 或 `X-Admin-Token`
+- `POST /api/feedback`：匿名领取状态反馈（`works` / `expired` / `unknown`），无账号、无自由文本，带去重与限流
+- `POST /api/admin/feedback/review`：把单条反馈标记为 `kept` / `held`，同一个 `ADMIN_TOKEN`
 - Cron 触发的 `scheduled()`
 
 令牌用 `crypto.subtle.digest("SHA-256")` 之后再比较。环境里没有 `ADMIN_TOKEN` 时管理接口返回 503，不会变成公开写入。令牌不进仓库。本地放 `.dev.vars`（已忽略），仓库里只有 `.dev.vars.example`。
@@ -277,7 +291,7 @@ npm test
 
 使用 Node 自带测试运行器，经 `tsx` 执行 `test/**/*.test.ts`。覆盖去重与跟踪参数、联盟/邀请链接丢弃、截止日期提取、过期判断、排序、空字段显示为「待核实」、页面原文消失后的归档计划，以及 `ADMIN_TOKEN` 门禁。
 
-运行 `npm test` 和 `npm run typecheck`。当前共 120 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护。改绑定后重新运行 `npm run types`。
+运行 `npm test` 和 `npm run typecheck`。当前共 134 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护；反馈功能另覆盖三选一校验、条款版本失效、去重/限流、公开汇总门槛、冲突复核与管理员令牌。改绑定后重新运行 `npm run types`。
 
 ## 更新现有 Worker
 
@@ -285,7 +299,7 @@ npm test
 
 1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
 2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
-3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译功能应用新增列；不编辑已应用的迁移。
+3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译功能和领取反馈应用迁移（0002 翻译列、0003 反馈表）；不编辑已应用的迁移。本轮没有执行远程迁移。
 4. 保留现有 `ADMIN_TOKEN`。仅当尚未配置时，使用 `npx wrangler secret put ADMIN_TOKEN` 的交互输入，不把令牌写进命令参数或源码。
 5. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
 6. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
