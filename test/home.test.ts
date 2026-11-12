@@ -4,6 +4,7 @@ import { evidenceStrength, selectFeatured } from "../src/content/featured";
 import type { DealRecord } from "../src/types";
 import { HOME_SCRIPT, renderHome } from "../src/ui/home";
 import { HOME_CSS } from "../src/ui/home-styles";
+import { renderCard } from "../src/ui/shared";
 
 const now = new Date("2026-11-10T03:00:00Z");
 
@@ -358,4 +359,21 @@ test("english renders switch the document language and keep the original excerpt
   assert.match(en, /data-lang="en"/);
   assert.match(en, /Free trial for students/);
   assert.match(zh, /面向学生的免费试用/);
+});
+
+test("deal categories are escaped before they are written into HTML attributes", () => {
+  const hostileCategory = 'ai" data-x="1' as DealRecord["category"];
+  const hostile = deal("hostile-category", {
+    category: hostileCategory,
+    valueText: "$50",
+    valueTier: "money",
+    conditions: "New users only",
+    steps: "1. Sign up",
+  });
+  const portal = home([hostile]);
+  const card = renderCard(hostile, { sections: "B", archived: false, hidden: false, open: false });
+  for (const html of [portal, card]) {
+    assert.match(html, /data-category="ai&quot; data-x=&quot;1"/);
+    assert.doesNotMatch(html, /data-category="ai" data-x="1"/);
+  }
 });

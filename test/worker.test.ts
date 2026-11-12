@@ -43,6 +43,7 @@ class FakeStatement {
   async first<T>(): Promise<T | null> {
     const sql = this.sql;
     if (sql.includes("FROM deals WHERE id =")) {
+      if (this.db.failDetail) throw new Error("D1_ERROR: database is unavailable");
       const id = String(this.params[0]);
       const entry = this.db.deals.find(candidate => candidate.id === id);
       return (entry ? rowOf(entry) : null) as T | null;
@@ -61,7 +62,7 @@ class FakeStatement {
 }
 
 class FakeDb {
-  constructor(public deals: DealRecord[]) {}
+  constructor(public deals: DealRecord[], public failDetail = false) {}
   prepare(sql: string) {
     return new FakeStatement(this, sql);
   }
@@ -122,6 +123,17 @@ test("known and unknown deal ids produce the right status", async () => {
   assert.equal((await fetchPath("/deal/does-not-exist")).status, 404);
   assert.equal((await fetchPath("/nope")).status, 404);
   assert.equal((await fetchPath("/deal/")).status, 404);
+});
+
+test("a database failure on a deal page returns 503 with an honest message, not 404", async () => {
+  const failingEnv = { DB: new FakeDb(deals, true) } as unknown as Env;
+  const response = await worker.fetch!(new Request("https://dealhunter.example/deal/ai-deal-1"), failingEnv);
+  assert.equal(response.status, 503);
+  const html = await response.text();
+  assert.match(html, /数据暂时不可用，请稍后再试/);
+  assert.match(html, /503 · SERVICE UNAVAILABLE/);
+  assert.doesNotMatch(html, /没有找到这条优惠/);
+  assert.doesNotMatch(html, /D1_ERROR|database is unavailable/);
 });
 
 test("legacy dashboard links are redirected with every filter preserved", async () => {

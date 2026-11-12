@@ -38,7 +38,7 @@ function isActive(deal: DealRecord, now: Date): boolean {
 }
 
 function categoryMarkup(deal: DealRecord): string {
-  return `<span class="portal-cat">${escapeHtml(CATEGORY_LABEL[deal.category])}</span>`;
+  return `<span class="portal-cat">${escapeHtml(CATEGORY_LABEL[deal.category] ?? deal.category)}</span>`;
 }
 
 function typeChip(deal: DealRecord): string {
@@ -75,8 +75,8 @@ function renderPortalCard(deal: DealRecord, lang: SiteLang, now: Date, options: 
   const copy = chineseCopy(deal);
   const proof = offerEvidence(deal);
   const data = options.forYou
-    ? ` data-id="${escapeHtml(deal.id)}" data-category="${deal.category}" data-regions="${escapeHtml(proof.regions.join(" "))}" data-card="${proof.card}" data-renewal="${proof.renewal}" data-archived="${dealIsArchived(deal, now)}" data-starts="${stamp(deal.startsAt)}"`
-    : ` data-id="${escapeHtml(deal.id)}" data-category="${deal.category}"`;
+    ? ` data-id="${escapeHtml(deal.id)}" data-category="${escapeHtml(deal.category)}" data-regions="${escapeHtml(proof.regions.join(" "))}" data-card="${proof.card}" data-renewal="${proof.renewal}" data-archived="${dealIsArchived(deal, now)}" data-starts="${stamp(deal.startsAt)}"`
+    : ` data-id="${escapeHtml(deal.id)}" data-category="${escapeHtml(deal.category)}"`;
   return `<article class="portal-card"${data}>
     <div class="portal-card-top">${categoryMarkup(deal)}${typeChip(deal)}${bookmarkButton(deal)}</div>
     <h3 class="portal-card-title"><a href="${detailPath(deal.id)}">${bilingual(deal.title, copy.title)}</a></h3>
@@ -113,7 +113,7 @@ function renderFeaturedPrimary(deal: DealRecord, lang: SiteLang): string {
 
 function renderFeaturedSecondary(deal: DealRecord, lang: SiteLang, index: number): string {
   const copy = chineseCopy(deal);
-  return `<article class="featured-secondary-card enter" data-category="${deal.category}" style="--delay:${index * 80}ms">
+  return `<article class="featured-secondary-card enter" data-category="${escapeHtml(deal.category)}" style="--delay:${index * 80}ms">
     <div class="portal-card-top">${categoryMarkup(deal)}${typeChip(deal)}${bookmarkButton(deal)}</div>
     <h3 class="portal-card-title"><a href="${detailPath(deal.id)}">${bilingual(deal.title, copy.title)}</a></h3>
     <p class="portal-excerpt">${excerptFor(deal, lang)}</p>

@@ -18,7 +18,7 @@ import { RADAR_CRON, scheduledSources } from "./sources";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
 import { renderDealDetail } from "./ui/detail";
 import { renderHome } from "./ui/home";
-import { renderNotFound } from "./ui/notfound";
+import { renderNotFound, renderServiceUnavailable } from "./ui/notfound";
 
 function translator(env: Env): TranslatorBinding | undefined {
   const ai = (env as unknown as { AI?: TranslatorBinding }).AI;
@@ -103,7 +103,7 @@ async function dealDetail(db: QueryDb, id: string, lang: "zh" | "en", origin: st
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "detail load failed", error: message }));
-    return html(renderNotFound({ lang, path: `/deal/${id}` }), 503);
+    return html(renderServiceUnavailable({ lang, path: `/deal/${id}` }), 503);
   }
 }
 

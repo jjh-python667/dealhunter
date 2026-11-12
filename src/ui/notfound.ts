@@ -28,3 +28,23 @@ export const NOT_FOUND_CSS = String.raw`
 .notfound-links a{text-decoration:none}
 @media(max-width:600px){.notfound{padding:44px 16px 72px}.notfound-links a{flex:1 1 calc(50% - 10px);min-width:0}}
 `;
+
+/**
+ * 503: the deal URL itself is valid, but the data store could not be read.
+ * Serving the 404 page here would wrongly tell visitors the offer is gone.
+ */
+export function renderServiceUnavailable(input: { lang?: "zh" | "en"; path?: string; preview?: boolean }): string {
+  const lang = input.lang === "en" ? "en" : "zh";
+  const path = input.path ? escapeHtml(input.path) : "";
+  return `<!DOCTYPE html>
+<html lang="zh-CN" data-lang="${lang}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="robots" content="noindex"><meta name="description" content="数据暂时不可用，请稍后再试。"><title>数据暂时不可用 · GLOBAL DEAL HUNTER</title><style>${PAGE_CSS}${NAV_CSS}${NOT_FOUND_CSS}</style></head>
+<body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
+<main class="notfound" id="main">
+  ${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照</p>' : ""}
+  <p class="eyebrow">503 · SERVICE UNAVAILABLE</p>
+  <h1>数据暂时不可用，请稍后再试</h1>
+  <p>这条优惠的页面暂时无法从数据库读取，但不是链接失效，也不需要重新收藏。请稍后刷新重试；如果一直不恢复，可以先浏览全部情报核对来源原文。</p>
+  <div class="notfound-links">${path ? `<a class="page-button" href="${path}">重新加载</a>` : ""}<a class="page-button" href="/deals">浏览全部情报</a><a class="page-button" href="/">回到首页</a></div>
+</main></body></html>`;
+}
