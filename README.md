@@ -40,7 +40,7 @@ npm run preview
 
 生产入口仍是 `src/index.ts`。路由解析在 `src/routes.ts`，看板布局在 `src/page.ts`，门户首页在 `src/ui/home.ts`，详情页在 `src/ui/detail.ts`，顶部导航与共享卡片在 `src/ui/nav.ts`、`src/ui/shared.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
 
-本轮验证：134 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。领取反馈另做了本机真实 HTTP 验收（去重、限流、条款版本失效、管理员复核）。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
+本轮验证：139 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。领取反馈另做了本机真实 HTTP 验收（去重、限流、条款版本失效、管理员复核）。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
 
 GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和本地打包检查。
 
@@ -291,7 +291,7 @@ npm test
 
 使用 Node 自带测试运行器，经 `tsx` 执行 `test/**/*.test.ts`。覆盖去重与跟踪参数、联盟/邀请链接丢弃、截止日期提取、过期判断、排序、空字段显示为「待核实」、页面原文消失后的归档计划，以及 `ADMIN_TOKEN` 门禁。
 
-运行 `npm test` 和 `npm run typecheck`。当前共 134 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护；反馈功能另覆盖三选一校验、条款版本失效、去重/限流、公开汇总门槛、冲突复核与管理员令牌。改绑定后重新运行 `npm run types`。
+运行 `npm test` 和 `npm run typecheck`。当前共 139 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护；反馈功能另覆盖三选一校验、条款版本失效、去重/限流、公开汇总门槛、冲突复核与管理员令牌。改绑定后重新运行 `npm run types`。
 
 ## 更新现有 Worker
 
@@ -299,7 +299,7 @@ npm test
 
 1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
 2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
-3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译功能和领取反馈应用迁移（0002 翻译列、0003 反馈表）；不编辑已应用的迁移。本轮没有执行远程迁移。
+3. `npx wrangler d1 migrations apply dealhunter --remote`，为尚未上线的翻译、领取反馈和门户快照应用迁移（0002 翻译列、0003 反馈表、0004 快照表）；不编辑已应用的迁移。本轮没有执行远程迁移。
 4. 保留现有 `ADMIN_TOKEN`。仅当尚未配置时，使用 `npx wrangler secret put ADMIN_TOKEN` 的交互输入，不把令牌写进命令参数或源码。
 5. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
 6. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
