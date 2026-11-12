@@ -1,12 +1,24 @@
 import { adminDecision } from "./auth";
 import { buildBoard } from "./board";
 import { runCollection } from "./collect";
-import { checksForRun, collectionToken, lastSuccessfulSourceChecks, latestRun, listDeals, recentSourceChecks, sourcePerformance, type QueryDb } from "./db";
+import {
+  checksForRun,
+  collectionToken,
+  getDeal,
+  lastSuccessfulSourceChecks,
+  latestRun,
+  listDeals,
+  recentSourceChecks,
+  sourcePerformance,
+  type QueryDb,
+} from "./db";
 import { renderPage } from "./page";
+import { langFromUrl, resolveRoute } from "./routes";
 import { RADAR_CRON, scheduledSources } from "./sources";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
-
-
+import { renderDealDetail } from "./ui/detail";
+import { renderHome } from "./ui/home";
+import { renderNotFound } from "./ui/notfound";
 
 function translator(env: Env): TranslatorBinding | undefined {
   const ai = (env as unknown as { AI?: TranslatorBinding }).AI;
@@ -41,7 +53,7 @@ function html(body: string, status = 200): Response {
   });
 }
 
-async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promise<Response> {
+async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channel?: "ai" | "cloud"): Promise<Response> {
   try {
     const now = new Date();
     const [deals, run, checks, updateToken] = await Promise.all([
@@ -52,7 +64,7 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promi
       console.error("Could not load source success history", error);
       return undefined;
     });
-    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess, updateToken }));
+    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess, updateToken, channel }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "dashboard load failed", error: message }));
@@ -64,9 +76,34 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promi
         now: new Date(),
         expand: false,
         dbError: "unavailable",
+        channel,
       }),
       500,
     );
+  }
+}
+
+async function portalHome(db: QueryDb, lang: "zh" | "en"): Promise<Response> {
+  try {
+    const now = new Date();
+    const [deals, run] = await Promise.all([listDeals(db), latestRun(db)]);
+    return html(renderHome({ deals, now, lang, run }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "home load failed", error: message }));
+    return html(renderHome({ deals: [], now: new Date(), lang, run: null, error: "unavailable" }), 500);
+  }
+}
+
+async function dealDetail(db: QueryDb, id: string, lang: "zh" | "en", origin: string): Promise<Response> {
+  try {
+    const deal = await getDeal(db, id);
+    if (!deal) return html(renderNotFound({ lang, path: `/deal/${id}` }), 404);
+    return html(renderDealDetail({ deal, now: new Date(), lang, origin }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "detail load failed", error: message }));
+    return html(renderNotFound({ lang, path: `/deal/${id}` }), 503);
   }
 }
 
@@ -132,10 +169,26 @@ export default {
         return json({ error: "translation_failed" }, 500);
       }
     }
-    if (url.pathname === "/") {
-      return dashboard(db, url.searchParams.get("expand") === "1", url.searchParams.get("lang") === "en" ? "en" : "zh");
+    if (url.pathname.startsWith("/api/")) {
+      return json({ error: "not_found" }, 404);
     }
-    return json({ error: "not_found" }, 404);
+
+    const lang = langFromUrl(url);
+    const route = resolveRoute(url);
+    switch (route.kind) {
+      case "home":
+        return portalHome(db, lang);
+      case "deals":
+        return dashboard(db, url.searchParams.get("expand") === "1", lang);
+      case "channel":
+        return dashboard(db, url.searchParams.get("expand") === "1", lang, route.channel);
+      case "detail":
+        return dealDetail(db, route.id, lang, url.origin);
+      case "redirect":
+        return new Response(null, { status: route.status, headers: { location: route.location } });
+      case "notFound":
+        return html(renderNotFound({ lang, path: url.pathname }), 404);
+    }
   },
 
   async scheduled(controller, env): Promise<void> {
