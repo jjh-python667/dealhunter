@@ -5,7 +5,7 @@ import type { DealRecord, RunRecord, SourceCheck } from "./types";
 export interface QueryStatement {
   bind(...values: Array<string | number | null>): QueryStatement;
   first<T extends Record<string, unknown>>(): Promise<T | null>;
-  all<T extends Record<string, unknown>>(): Promise<{ results?: T[] }>;
+  all<T extends Record<string, unknown>>(): Promise<{ results?: T[]; meta?: { rows_read?: number } }>;
   run(): Promise<unknown>;
 }
 
@@ -88,7 +88,7 @@ export function mapDeal(row: DealRow): DealRecord | null {
   };
 }
 
-export async function listDeals(db: QueryDb): Promise<DealRecord[]> {
+export async function listDeals(db: QueryDb, onRead?: (rows: number) => void): Promise<DealRecord[]> {
   const result = await db
     .prepare(
       `SELECT id, title, category, summary, value_text, value_amount, value_currency, value_tier,
@@ -100,6 +100,7 @@ export async function listDeals(db: QueryDb): Promise<DealRecord[]> {
        LIMIT 400`,
     )
     .all<DealRow>();
+  if (result.meta?.rows_read !== undefined) onRead?.(result.meta.rows_read);
   return (result.results ?? []).flatMap((row) => {
     const deal = mapDeal(row);
     return deal ? [deal] : [];

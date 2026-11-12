@@ -44,6 +44,19 @@ npm run preview
 
 GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和本地打包检查。
 
+### 门户快照与本地压测
+
+成功采集后生成首页（含推荐榜）、AI 频道和云服务频道的中英文快照。D1 保存 gzip 压缩的 HTML，边缘按页面和语言缓存最多 60 秒。浏览器的筛选与偏好照常在本机处理。快照新鲜期最多 20 分钟，遇到优惠生效、截止或日期切换时提前失效。超过新鲜期会优先读实时页面，实时读取失败时可回退到仍在有效期内的快照。上线时先应用 `0003_portal_snapshots.sql` 迁移，再等一轮成功采集生成快照。
+
+响应头 `X-Dealhunter-Cache` 可区分 `EDGE`、`SNAPSHOT`、`STALE`、`LIVE` 和 `BYPASS`。`Server-Timing` 提供快照查询和首页优惠查询各自的 D1 读行数，首页的采集状态查询单独执行。
+
+```bash
+npm run build:check
+node scripts/bench-snapshots.cjs
+```
+
+默认每组 200 请求、20 并发，可用 `BENCH_REQUESTS` 和 `BENCH_CONCURRENCY` 调整。压测使用 Miniflare、本地 D1 和公开样本，输出缓存命中率、p95、读行数和样本发现延迟。历史样本发现延迟包含最初导入的旧优惠，生产采集延迟应使用上线后的新记录另测。
+
 ## 门户首页、AI/云频道与独立详情页
 
 门户将优惠按首页、频道、完整看板与独立详情页组织。
