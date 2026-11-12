@@ -9,11 +9,19 @@ export const CLIENT_SCRIPT = String.raw`
   const category = document.querySelector('#category');
   const type = document.querySelector('#deal-type');
   const sort = document.querySelector('#sort');
+  const evidence = Array.from(document.querySelectorAll('[data-evidence]'));
+  const sourceDetails = document.querySelector('#sources');
+  const requestedEvidence = new Set((new URLSearchParams(location.search).get('evidence') || '').split(','));
+  evidence.forEach(input => { input.checked = requestedEvidence.has(input.dataset.evidence); });
+  if (location.hash === '#sources') sourceDetails.open = true;
+  document.querySelectorAll('a[href="#sources"]').forEach(link => {
+    link.addEventListener('click', () => { sourceDetails.open = true; });
+  });
   const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
   const params = new URLSearchParams(location.search);
   const validViews = ['all','today','rank','ending','archived','saved'];
-  const titles = {all:'全部情报',today:'今日更新',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
-  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类；没有发布时间时采用首次收录时间。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏仅保存在当前浏览器，包含已归档的记录。'};
+  const titles = {all:'全部情报',today:'今日更新',new:'回访新增',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
+  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类。没有发布时间时采用首次收录时间。',new:'按首次收录时间，显示自上次访问以来仍在册的情报。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏保存在当前浏览器，包含已归档的记录。'};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const PAGE_SIZE = 12;
   let savedIds = new Set();
@@ -21,6 +29,38 @@ export const CLIENT_SCRIPT = String.raw`
   let toastTimer;
   let inputTimer;
   let orderKey = '';
+  function previousVisit() {
+    const snapshot = Number(root.dataset.snapshotAt);
+    if (!Number.isFinite(snapshot) || snapshot <= 0 || document.querySelector('.error-banner')) return 0;
+    try {
+      const previous = Number(localStorage.getItem('dh-last-visit'));
+      const current = Date.now();
+      let baseline = previous > 0 && previous <= snapshot ? previous : 0;
+      try {
+        const session = JSON.parse(sessionStorage.getItem('dh-visit-session') || 'null');
+        if (session && session.touched <= current && current - session.touched < 30 * 60 * 1000 &&
+            Number.isFinite(session.baseline) && session.baseline >= 0 && session.baseline <= snapshot) {
+          baseline = session.baseline;
+        }
+        sessionStorage.setItem('dh-visit-session', JSON.stringify({baseline,touched:current}));
+      } catch {}
+      if (!(previous > snapshot)) localStorage.setItem('dh-last-visit',String(snapshot));
+      return baseline;
+    } catch { return 0; }
+  }
+  const visitCutoff = previousVisit();
+  const factsByCard = new Map(cards.map(card => [card,card.querySelector('.facts').dataset]));
+  const newlyCollected = new Set(cards.filter(card => {
+    const firstSeen = Number(factsByCard.get(card).firstSeen);
+    return visitCutoff > 0 && firstSeen > visitCutoff && firstSeen <= Number(root.dataset.snapshotAt) && card.dataset.archived !== 'true';
+  }));
+  const newView = document.querySelector('[data-view=new]');
+  if (visitCutoff) {
+    validViews.push('new');
+    newView.hidden = false;
+    newView.querySelector('b').textContent = String(newlyCollected.size);
+  }
+  const endingCards = cards.filter(card => card.dataset.sections.split(' ').includes('G') && card.dataset.archived !== 'true');
   function readSaved() {
     try {
       const parsed = JSON.parse(localStorage.getItem('dh-saved') || '[]');
@@ -53,6 +93,9 @@ export const CLIENT_SCRIPT = String.raw`
     const url = new URL(location.href);
     const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:category.value === 'all' ? '' : category.value,type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : ''};
     Object.entries(values).forEach(([key,value]) => { if(value) url.searchParams.set(key,value); else url.searchParams.delete(key); });
+    const selected = evidence.filter(input => input.checked).map(input => input.dataset.evidence);
+    if (selected.length) url.searchParams.set('evidence', selected.join(','));
+    else url.searchParams.delete('evidence');
     if (aliases[url.hash]) url.hash = '';
     try { history.replaceState(null,'',url); } catch {}
   }
@@ -74,10 +117,13 @@ export const CLIENT_SCRIPT = String.raw`
     document.querySelector('#saved-count').textContent = String(cards.filter(card => savedIds.has(card.dataset.id)).length);
   }
   function reset() {
-    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1; render(true);
+    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1;
+    evidence.forEach(input => { input.checked = false; });
+    render(true);
   }
   function render(animate) {
     const needle = q.value.trim().normalize('NFKC').toLocaleLowerCase();
+    const requiredFields = evidence.filter(input => input.checked).map(input => input.dataset.evidence + 'Known');
     const mode = state.view === 'rank' ? 'rank' : state.view === 'ending' ? 'ending' : sort.value;
     sort.disabled = state.view === 'rank' || state.view === 'ending';
     const ordered = cards.slice().sort((a,b) => {
@@ -95,6 +141,7 @@ export const CLIENT_SCRIPT = String.raw`
       const archived = card.dataset.archived === 'true';
       if (state.view === 'all' && archived) return false;
       if (state.view === 'today' && !sections.includes('A')) return false;
+      if (state.view === 'new' && !newlyCollected.has(card)) return false;
       if (state.view === 'rank' && !sections.includes('B')) return false;
       if (state.view === 'ending' && !sections.includes('G')) return false;
       if (state.view === 'archived' && !archived) return false;
@@ -102,6 +149,10 @@ export const CLIENT_SCRIPT = String.raw`
       if (category.value === 'finance') { if (!['bank','ucard'].includes(card.dataset.category)) return false; }
       else if (category.value !== 'all' && card.dataset.category !== category.value) return false;
       if (type.value !== 'all' && card.dataset.type !== type.value) return false;
+      if (requiredFields.length) {
+        const facts = factsByCard.get(card);
+        if (!requiredFields.every(field => facts[field] === 'true')) return false;
+      }
       return !needle || card.dataset.search.includes(needle);
     });
     const pages = Math.max(1,Math.ceil(matched.length / PAGE_SIZE));
@@ -116,24 +167,30 @@ export const CLIENT_SCRIPT = String.raw`
       });
     }
     document.querySelector('#view-title').textContent = titles[state.view];
-    document.querySelector('#view-note').textContent = notes[state.view];
+    const dueSaved = endingCards.filter(card => savedIds.has(card.dataset.id)).length;
+    document.querySelector('#view-note').textContent = state.view === 'saved' && dueSaved
+      ? notes.saved + ' 有 ' + dueSaved + ' 条收藏将在 7 天内截止。'
+      : notes[state.view];
+    endingCards.forEach(card => {
+      card.querySelector('.saved-deadline').hidden = state.view !== 'saved' || !savedIds.has(card.dataset.id);
+    });
     document.querySelector('#result-status').textContent = matched.length ? '共 '+matched.length+' 条 · 显示 '+(offset+1)+'–'+Math.min(offset+PAGE_SIZE,matched.length) : '找到 0 条';
     viewButtons.forEach(button => button.setAttribute('aria-pressed',String(button.dataset.view === state.view)));
     const empty = document.querySelector('#empty-state'); empty.hidden = matched.length > 0;
     const noSaved = state.view === 'saved' && !cards.some(card => savedIds.has(card.dataset.id));
     document.querySelector('#empty-title').textContent = noSaved ? '把好机会，留给稍后的自己' : state.view === 'archived' && !needle && category.value === 'all' && type.value === 'all' ? '暂时没有已结束的活动' : '暂时没有匹配的情报';
-    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : '试试更短的关键词，或清除分类与优惠类型筛选。';
+    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : '试试更短的关键词，或放宽筛选条件。';
     document.querySelector('#pagination').hidden = matched.length <= PAGE_SIZE;
     document.querySelector('#page-info').textContent = state.page+' / '+pages;
     document.querySelector('#previous-page').disabled = state.page === 1;
     document.querySelector('#next-page').disabled = state.page === pages;
     document.querySelector('#clear-search').hidden = !q.value;
-    document.querySelector('#reset-filters').hidden = !needle && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
+    document.querySelector('#reset-filters').hidden = !needle && !requiredFields.length && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
     updateBookmarks(); updateUrl(); updateLanguage();
   }
   viewButtons.forEach(button => button.addEventListener('click',() => {clearTimeout(inputTimer);state.view = button.dataset.view;state.page = 1;render(true);}));
   q.addEventListener('input',() => {clearTimeout(inputTimer);state.page = 1;inputTimer = setTimeout(() => render(true),100);} );
-  [category,type,sort].forEach(select => select.addEventListener('change',() => {clearTimeout(inputTimer);state.page=1;render(true);}));
+  [category,type,sort,...evidence].forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.page=1;render(true);}));
   document.querySelector('#clear-search').addEventListener('click',() => {clearTimeout(inputTimer);q.value='';state.page=1;render(true);q.focus();});
   document.querySelector('#reset-filters').addEventListener('click',reset);
   document.querySelector('#empty-reset').addEventListener('click',reset);

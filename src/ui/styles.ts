@@ -12,4 +12,11 @@ export const PAGE_CSS = String.raw`
 @media(max-width:600px){.filter-row .select-wrap{flex:1 1 calc(50% - 5px)}.filter-row .select-wrap.sort{flex:1 1 calc(50% - 5px)}.filter-row .langbar{width:calc(50% - 5px);justify-content:center}.filter-row .langbar a{flex:1;min-height:44px}}
 @media(max-width:360px){.shell{padding-left:12px;padding-right:12px}.hero h1{font-size:25px}.search-box input{font-size:13px}.card{padding-left:15px;padding-right:15px}.card h3{font-size:16px}.view-tab{padding:8px 9px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation:none!important;transition:none!important}.card:hover{transform:none}}
+.collection-status{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 14px;font-size:12px;color:var(--muted)}
+.collection-status a{text-decoration:underline;text-underline-offset:3px}
+.evidence-filters{display:flex;flex-wrap:wrap;gap:0 16px;min-inline-size:0;margin:0 12px 8px;padding:0 2px;border:0;color:var(--muted);font-size:12px}
+.evidence-filters legend{padding:0;font-weight:600}
+.evidence-filters label{display:inline-flex;align-items:center;gap:5px;min-height:44px;cursor:pointer}
+.evidence-filters input{margin:0;accent-color:var(--gold);width:16px;height:16px}
+.saved-deadline{margin:0 0 10px;color:var(--gold);font-size:12px}
 `;
