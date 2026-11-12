@@ -218,7 +218,41 @@ export const SOURCES: SourceDef[] = [
     category: "ai",
     pattern: /government partners a 40% discount on Claude Enterprise, Claude for Government, and the Claude API/i,
   },
+  {
+    id: "alibaba-cloud-trial",
+    name: "Alibaba Cloud Free Trial",
+    url: "https://www.alibabacloud.com/help/en/user-center/product-overview/learn-about-free-trials",
+    kind: "page",
+    category: "vps",
+    pattern: /You have a registered Alibaba Cloud account with complete user information.{0,170}?You have no historical orders for the product you want to try \(the "first use of the product" requirement\)\./i,
+  },
+  {
+    id: "oracle-cloud-free",
+    name: "Oracle Cloud Free Tier",
+    url: "https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier.htm",
+    kind: "page",
+    category: "vps",
+    pattern: /The Free Trial provides you with \$300 of cloud credits that are valid for up to 30 days\./i,
+  },
+  {
+    id: "azure-students",
+    name: "Azure for Students",
+    url: "https://azure.microsoft.com/en-us/free/students/",
+    kind: "page",
+    category: "vps",
+    pattern: /Available only to full-time university students\*?\s+No credit card required.{0,230}?\$100 credit/i,
+  },
 ];
+
+export const RADAR_CRON = "*/15 * * * *";
+const PRIORITY_IDS = new Set(["openai-news", "vercel-changelog", "aws-whats-new", "google-cloud-blog"]);
+
+export function scheduledSources(scheduledTime: number): SourceDef[] {
+  const minute = new Date(scheduledTime).getUTCMinutes();
+  const slot = Math.floor(minute / 15);
+  const regular = SOURCES.filter(source => !PRIORITY_IDS.has(source.id));
+  return [...SOURCES.filter(source => PRIORITY_IDS.has(source.id)), ...regular.filter((_, index) => index % 4 === slot)];
+}
 
 export function matchPage(text: string, source: SourceDef): string[] {
   if (source.kind !== "page") return [];

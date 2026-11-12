@@ -1,8 +1,9 @@
 import { adminDecision } from "./auth";
 import { buildBoard } from "./board";
 import { runCollection } from "./collect";
-import { checksForRun, lastSuccessfulSourceChecks, latestRun, listDeals, type QueryDb } from "./db";
+import { checksForRun, collectionToken, lastSuccessfulSourceChecks, latestRun, listDeals, recentSourceChecks, sourcePerformance, type QueryDb } from "./db";
 import { renderPage } from "./page";
+import { RADAR_CRON, scheduledSources } from "./sources";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
 
 
@@ -43,14 +44,15 @@ function html(body: string, status = 200): Response {
 async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promise<Response> {
   try {
     const now = new Date();
-    const [deals, run] = await Promise.all([listDeals(db), latestRun(db)]);
-    const checks = run ? await checksForRun(db, run.id) : [];
+    const [deals, run, checks, updateToken] = await Promise.all([
+      listDeals(db), latestRun(db), recentSourceChecks(db), collectionToken(db),
+    ]);
     const board = buildBoard(deals, now);
     const sourceSuccess = await lastSuccessfulSourceChecks(db, checks).catch(error => {
       console.error("Could not load source success history", error);
       return undefined;
     });
-    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess }));
+    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess, updateToken }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "dashboard load failed", error: message }));
@@ -80,6 +82,24 @@ export default {
     if (url.pathname === "/api/board") {
       const deals = await listDeals(db);
       return json({ generatedAt: new Date().toISOString(), board: buildBoard(deals, new Date()) });
+    }
+    if (url.pathname === "/api/updates" && request.method === "GET") {
+      try {
+        return json({ token: await collectionToken(db) });
+      } catch {
+        return json({ error: "collection_status_unavailable" }, 503);
+      }
+    }
+    if (url.pathname === "/api/source-performance" && request.method === "GET") {
+      try {
+        const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+        const rows = await sourcePerformance(db, since);
+        return new Response(JSON.stringify(rows), {
+          headers: {"content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=900"},
+        });
+      } catch {
+        return json({ error: "source_performance_unavailable" }, 503);
+      }
     }
     if (url.pathname === "/api/runs") {
       const run = await latestRun(db);
@@ -130,6 +150,7 @@ export default {
       console.log(JSON.stringify({ message: "translate", ...report }));
       return;
     }
-    await runCollection(db, { trigger: "cron", cron: controller.cron });
+    const sources = controller.cron === RADAR_CRON ? scheduledSources(controller.scheduledTime) : undefined;
+    await runCollection(db, { trigger: "cron", cron: controller.cron, sources });
   },
 } satisfies ExportedHandler<Env>;

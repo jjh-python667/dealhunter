@@ -1,4 +1,5 @@
-/** No network calls: all interactions work on the server-rendered snapshot. */
+import { RADAR_SCRIPT } from "./radar";
+
 export const CLIENT_SCRIPT = String.raw`
 (() => {
   'use strict';
@@ -19,16 +20,17 @@ export const CLIENT_SCRIPT = String.raw`
   });
   const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
   const params = new URLSearchParams(location.search);
-  const validViews = ['all','today','rank','ending','archived','saved'];
-  const titles = {all:'全部情报',today:'今日更新',new:'回访新增',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
-  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类。没有发布时间时采用首次收录时间。',new:'按首次收录时间，显示自上次访问以来仍在册的情报。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏保存在当前浏览器，包含已归档的记录。'};
+  const validViews = ['all','today','for-you','rank','ending','archived','saved'];
+  const titles = {all:'全部情报',today:'今日更新','for-you':'适合我',new:'回访新增',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
+  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类。没有发布时间时采用首次收录时间。','for-you':'按「我的偏好」筛选原文明示的条件。',new:'按首次收录时间，显示自上次访问以来仍在册的情报。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏保存在当前浏览器，包含已归档的记录。'};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const PAGE_SIZE = 12;
   let savedIds = new Set();
   let canPersist = true;
   let toastTimer;
   let inputTimer;
-  let orderKey = '';
+  let orderKey = 'newest';
+  const orderCache = new Map();
   function previousVisit() {
     const snapshot = Number(root.dataset.snapshotAt);
     if (!Number.isFinite(snapshot) || snapshot <= 0 || document.querySelector('.error-banner')) return 0;
@@ -72,7 +74,8 @@ export const CLIENT_SCRIPT = String.raw`
   try { preferredLang = localStorage.getItem('dh-lang'); } catch { canPersist = false; }
   const lang = params.get('lang') || preferredLang || root.dataset.lang;
   if (lang === 'zh' || lang === 'en') root.dataset.lang = lang;
-  const state = {view:validViews.includes(params.get('view')) ? params.get('view') : 'all',page:Math.max(1,parseInt(params.get('page') || '1',10) || 1)};
+  const state = {view:validViews.includes(params.get('view')) ? params.get('view') : 'all',page:Math.max(1,parseInt(params.get('page') || '1',10) || 1),offer:params.get('offer') || ''};
+  if (!cards.some(card => card.dataset.id === state.offer)) state.offer = '';
   const aliases = {'#sec-a':['today','all'],'#sec-b':['rank','all'],'#sec-c':['all','ai'],'#sec-d':['all','crypto'],'#sec-e':['all','finance'],'#sec-f':['all','vps'],'#sec-g':['ending','all'],'#sec-h':['archived','all']};
   const legacy = aliases[location.hash];
   if (legacy && !params.has('view')) state.view = legacy[0];
@@ -91,7 +94,7 @@ export const CLIENT_SCRIPT = String.raw`
   }
   function updateUrl() {
     const url = new URL(location.href);
-    const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:category.value === 'all' ? '' : category.value,type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : ''};
+    const values = {view:state.view === 'all' ? '' : state.view,q:q.value.trim(),category:category.value === 'all' ? '' : category.value,type:type.value === 'all' ? '' : type.value,sort:sort.value === 'newest' ? '' : sort.value,lang:root.dataset.lang,page:state.page > 1 ? String(state.page) : '',offer:state.offer};
     Object.entries(values).forEach(([key,value]) => { if(value) url.searchParams.set(key,value); else url.searchParams.delete(key); });
     const selected = evidence.filter(input => input.checked).map(input => input.dataset.evidence);
     if (selected.length) url.searchParams.set('evidence', selected.join(','));
@@ -117,21 +120,27 @@ export const CLIENT_SCRIPT = String.raw`
     document.querySelector('#saved-count').textContent = String(cards.filter(card => savedIds.has(card.dataset.id)).length);
   }
   function reset() {
-    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1;
+    clearTimeout(inputTimer); q.value = ''; category.value = 'all'; type.value = 'all'; sort.value = 'newest'; state.view = 'all'; state.page = 1; state.offer = '';
     evidence.forEach(input => { input.checked = false; });
     render(true);
   }
   function render(animate) {
     const needle = q.value.trim().normalize('NFKC').toLocaleLowerCase();
+    const intent = searchIntent(needle);
+    const recommended = new Map(cards.map(card => [card,reasonsFor(card)]).filter(([,reasons]) => reasons.length));
+    document.querySelector('[data-view="for-you"] b').textContent = String(recommended.size);
     const requiredFields = evidence.filter(input => input.checked).map(input => input.dataset.evidence + 'Known');
     const mode = state.view === 'rank' ? 'rank' : state.view === 'ending' ? 'ending' : sort.value;
     sort.disabled = state.view === 'rank' || state.view === 'ending';
-    const ordered = cards.slice().sort((a,b) => {
-      const newest = Number(b.dataset.stamp) - Number(a.dataset.stamp);
-      if (mode === 'rank') return Number(b.dataset.rank) - Number(a.dataset.rank) || newest;
-      if (mode === 'ending') return Number(a.dataset.deadline) - Number(b.dataset.deadline) || newest;
-      return newest;
-    });
+    if (!orderCache.has(mode)) {
+      orderCache.set(mode, cards.slice().sort((a,b) => {
+        const newest = Number(b.dataset.stamp) - Number(a.dataset.stamp);
+        if (mode === 'rank') return Number(b.dataset.rank) - Number(a.dataset.rank) || newest;
+        if (mode === 'ending') return Number(a.dataset.deadline) - Number(b.dataset.deadline) || newest;
+        return newest;
+      }));
+    }
+    const ordered = orderCache.get(mode);
     if (orderKey !== mode) {
       const fragment = document.createDocumentFragment();
       ordered.forEach(card => fragment.append(card)); list.append(fragment); orderKey = mode;
@@ -139,7 +148,9 @@ export const CLIENT_SCRIPT = String.raw`
     const matched = ordered.filter(card => {
       const sections = card.dataset.sections.split(' ');
       const archived = card.dataset.archived === 'true';
+      if (state.offer) return card.dataset.id === state.offer;
       if (state.view === 'all' && archived) return false;
+      if (state.view === 'for-you' && !recommended.has(card)) return false;
       if (state.view === 'today' && !sections.includes('A')) return false;
       if (state.view === 'new' && !newlyCollected.has(card)) return false;
       if (state.view === 'rank' && !sections.includes('B')) return false;
@@ -153,7 +164,7 @@ export const CLIENT_SCRIPT = String.raw`
         const facts = factsByCard.get(card);
         if (!requiredFields.every(field => facts[field] === 'true')) return false;
       }
-      return !needle || card.dataset.search.includes(needle);
+      return matchesSearch(card,intent);
     });
     const pages = Math.max(1,Math.ceil(matched.length / PAGE_SIZE));
     state.page = Math.min(state.page,pages);
@@ -161,12 +172,18 @@ export const CLIENT_SCRIPT = String.raw`
     const visible = matched.slice(offset,offset + PAGE_SIZE);
     const visibleSet = new Set(visible);
     cards.forEach(card => {card.classList.remove('enter');card.hidden = !visibleSet.has(card);});
+    visible.forEach(card => {
+      const reason = card.querySelector('.recommendation-reason');
+      reason.hidden = state.view !== 'for-you' || !recommended.has(card);
+      if (!reason.hidden) reason.textContent = recommended.get(card).join(' · ');
+      if (state.offer) card.querySelector('.deal-details').open = true;
+    });
     if (animate && !reduced.matches) {
       visible.slice(0,Math.min(3,Math.ceil(visible.length/3))).forEach((card,index) => {
         card.style.setProperty('--delay',String(index*55)+'ms'); card.classList.add('enter');
       });
     }
-    document.querySelector('#view-title').textContent = titles[state.view];
+    document.querySelector('#view-title').textContent = state.offer ? '优惠详情' : titles[state.view];
     const dueSaved = endingCards.filter(card => savedIds.has(card.dataset.id)).length;
     document.querySelector('#view-note').textContent = state.view === 'saved' && dueSaved
       ? notes.saved + ' 有 ' + dueSaved + ' 条收藏将在 7 天内截止。'
@@ -179,18 +196,18 @@ export const CLIENT_SCRIPT = String.raw`
     const empty = document.querySelector('#empty-state'); empty.hidden = matched.length > 0;
     const noSaved = state.view === 'saved' && !cards.some(card => savedIds.has(card.dataset.id));
     document.querySelector('#empty-title').textContent = noSaved ? '把好机会，留给稍后的自己' : state.view === 'archived' && !needle && category.value === 'all' && type.value === 'all' ? '暂时没有已结束的活动' : '暂时没有匹配的情报';
-    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : '试试更短的关键词，或放宽筛选条件。';
+    document.querySelector('#empty-note').textContent = noSaved ? '点击卡片右上角的书签即可收藏。收藏仅保存在当前浏览器。' : state.view === 'for-you' ? '在「我的偏好」选择关注条件，或放宽现有条件。' : '试试更短的关键词，或放宽筛选条件。';
     document.querySelector('#pagination').hidden = matched.length <= PAGE_SIZE;
     document.querySelector('#page-info').textContent = state.page+' / '+pages;
     document.querySelector('#previous-page').disabled = state.page === 1;
     document.querySelector('#next-page').disabled = state.page === pages;
     document.querySelector('#clear-search').hidden = !q.value;
-    document.querySelector('#reset-filters').hidden = !needle && !requiredFields.length && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
+    document.querySelector('#reset-filters').hidden = !state.offer && !needle && !requiredFields.length && category.value === 'all' && type.value === 'all' && sort.value === 'newest';
     updateBookmarks(); updateUrl(); updateLanguage();
   }
-  viewButtons.forEach(button => button.addEventListener('click',() => {clearTimeout(inputTimer);state.view = button.dataset.view;state.page = 1;render(true);}));
-  q.addEventListener('input',() => {clearTimeout(inputTimer);state.page = 1;inputTimer = setTimeout(() => render(true),100);} );
-  [category,type,sort,...evidence].forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.page=1;render(true);}));
+  viewButtons.forEach(button => button.addEventListener('click',() => {clearTimeout(inputTimer);state.view = button.dataset.view;state.offer = '';state.page = 1;render(true);}));
+  q.addEventListener('input',() => {clearTimeout(inputTimer);state.offer='';state.page = 1;inputTimer = setTimeout(() => render(true),100);} );
+  [category,type,sort,...evidence].forEach(control => control.addEventListener('change',() => {clearTimeout(inputTimer);state.offer='';state.page=1;render(true);}));
   document.querySelector('#clear-search').addEventListener('click',() => {clearTimeout(inputTimer);q.value='';state.page=1;render(true);q.focus();});
   document.querySelector('#reset-filters').addEventListener('click',reset);
   document.querySelector('#empty-reset').addEventListener('click',reset);
@@ -199,6 +216,8 @@ export const CLIENT_SCRIPT = String.raw`
     const card = button.closest('.card'); const id = card.dataset.id;
     if (savedIds.has(id)) savedIds.delete(id); else savedIds.add(id);
     try {localStorage.setItem('dh-saved',JSON.stringify(Array.from(savedIds)));canPersist=true;} catch {canPersist=false;}
+    if (canPersist) alerts = loadAlerts();
+    refreshAlerts(); showAlerts();
     render(false);
     announce((savedIds.has(id) ? '已收藏' : '已取消收藏') + (canPersist ? ' · 仅此浏览器' : ' · 本次会话有效，浏览器未允许保存'));
     if (card.hidden) document.querySelector('#view-title').focus({preventScroll:true});
@@ -220,6 +239,15 @@ export const CLIENT_SCRIPT = String.raw`
     if (event.key === 'Escape' && event.target === q && q.value) {q.value='';state.page=1;render(true);}
   });
   addEventListener('storage',event => {if(event.key==='dh-saved' || event.key===null){savedIds=readSaved();render(false);}});
+  ${RADAR_SCRIPT}
   render(false);
+  if (!reduced.matches && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('section-reveal');
+      observer.unobserve(entry.target);
+    }),{threshold:0.15});
+    [document.querySelector('#results-heading'),sourceDetails].forEach(node => observer.observe(node));
+  }
 })();
 `;
