@@ -1,7 +1,7 @@
 import { adminDecision } from "./auth";
 import { buildBoard } from "./board";
 import { runCollection } from "./collect";
-import { checksForRun, latestRun, listDeals, type QueryDb } from "./db";
+import { checksForRun, lastSuccessfulSourceChecks, latestRun, listDeals, type QueryDb } from "./db";
 import { renderPage } from "./page";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
 
@@ -46,7 +46,11 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en"): Promi
     const [deals, run] = await Promise.all([listDeals(db), latestRun(db)]);
     const checks = run ? await checksForRun(db, run.id) : [];
     const board = buildBoard(deals, now);
-    return html(renderPage({ board, deals, checks, run, now, expand, lang }));
+    const sourceSuccess = await lastSuccessfulSourceChecks(db, checks).catch(error => {
+      console.error("Could not load source success history", error);
+      return undefined;
+    });
+    return html(renderPage({ board, deals, checks, run, now, expand, lang, sourceSuccess }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "dashboard load failed", error: message }));

@@ -351,3 +351,17 @@ export async function checksForRun(db: QueryDb, runId: string): Promise<SourceCh
     checkedAt: row.checked_at,
   }));
 }
+
+export async function lastSuccessfulSourceChecks(
+  db: QueryDb,
+  checks: SourceCheck[],
+): Promise<Map<string, string>> {
+  const failedIds = [...new Set(checks.filter(check => !check.ok).map(check => check.sourceId))];
+  if (!failedIds.length) return new Map();
+  const placeholders = failedIds.map(() => "?").join(", ");
+  const result = await db.prepare(
+    `SELECT source_id, MAX(checked_at) AS last_success_at
+     FROM source_checks WHERE ok = 1 AND source_id IN (${placeholders}) GROUP BY source_id`,
+  ).bind(...failedIds).all<{ source_id: string; last_success_at: string }>();
+  return new Map((result.results ?? []).map(row => [row.source_id, row.last_success_at]));
+}

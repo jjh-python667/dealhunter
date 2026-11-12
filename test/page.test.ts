@@ -87,3 +87,28 @@ test("shared date formatter preserves date-only values and Beijing midnight conv
   assert.equal(formatWhen("2026-11-10T16:30:00Z"), "2026/11/11 00:30 北京时间");
   assert.equal(formatWhen("unknown"), "unknown");
 });
+
+test("translated offer details retain the original excerpt and precise deadline", () => {
+  const html = page([deal("translated", {
+    zhSummary: "面向学生的免费试用",
+    endsAt: "2026-11-10T16:30:00Z",
+  })]);
+  assert.match(html, /<dt>来源原文摘录<\/dt><dd>Free trial for students<\/dd>/);
+  assert.match(html, /<dt>摘录译文<\/dt><dd>面向学生的免费试用<\/dd>/);
+  assert.match(html, /<dt>截止日期<\/dt><dd>2026\/11\/11 00:30 北京时间<\/dd>/);
+});
+
+test("source status distinguishes the failed attempt from the last successful collection", () => {
+  const html = page([], {
+    checks: [{
+      sourceId: "example", sourceUrl: "https://example.com/feed", httpStatus: null,
+      ok: false, error: "TimeoutError at internal hostname", itemsSeen: 0, itemsKept: 0,
+      checkedAt: now.toISOString(),
+    }],
+    sourceSuccess: new Map([["example", "2026-11-09T03:00:00Z"]]),
+  });
+  assert.match(html, /请求超时/);
+  assert.match(html, /最近尝试 2026\/11\/10 11:00 北京时间/);
+  assert.match(html, /最近成功 2026\/11\/09 11:00 北京时间/);
+  assert.doesNotMatch(html, /internal hostname/);
+});

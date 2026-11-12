@@ -8,9 +8,6 @@ import { CLIENT_SCRIPT } from "./ui/client";
 import { PAGE_CSS } from "./ui/styles";
 
 const SECTION_ORDER: BoardSectionId[] = ["A", "B", "C", "D", "E", "F", "G", "H"];
-const SHORT_DATE = new Intl.DateTimeFormat("zh-CN", {
-  month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai",
-});
 const ICONS: Record<string, string> = {
   radar: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="m12 12 7-7M12 2v2M2 12h2m8 8v2m8-10h2"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -56,11 +53,6 @@ function stamp(value: string | null): number {
   return Number.isFinite(result) ? result : 0;
 }
 
-function shortDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "时间待核实" : SHORT_DATE.format(date);
-}
-
 function hasSourceText(value: string | null | undefined): boolean {
   return show(value) !== PENDING;
 }
@@ -96,20 +88,22 @@ function card(deal: DealRecord, options: { sections: string; archived: boolean; 
   const translated = copy.title || copy.summary
     ? `<span class="mt t-zh" title="中文内容按收录原文翻译与整理，金额与条件以来源原文为准">${mtLabel} · 原文可查</span><span class="t-en">来源原文</span>`
     : `<span title="暂无可用译文时，完整保留来源原文">原文展示</span>`;
-  const deadline = deal.endsAt ? shortDate(deal.endsAt) : show(deal.timeText);
+  const deadline = deal.endsAt ? formatWhen(deal.endsAt) : show(deal.timeText);
   const durationZh = !deal.startsAt && !deal.endsAt ? copy.field(deal.timeText) : undefined;
   return `<article class="card${options.archived ? " archived" : ""}" data-id="${escapeHtml(deal.id)}" data-search="${escapeHtml(searchable)}" data-category="${deal.category}" data-type="${deal.dealType}" data-sections="${options.sections}" data-archived="${options.archived}" data-rank="${Number.isFinite(deal.rankScore) ? deal.rankScore : 0}" data-stamp="${stamp(deal.publishedAt ?? deal.firstSeenAt)}" data-deadline="${stamp(deal.endsAt) || Number.MAX_SAFE_INTEGER}"${options.hidden ? " hidden" : ""}>
     <div class="card-top"><span class="category-dot"></span><span class="category-label">${escapeHtml(CATEGORY_LABEL[deal.category])}</span><span class="type-chip${deal.dealType === "free" ? " free" : ""}">${escapeHtml(DEAL_TYPE_LABEL[deal.dealType])}</span>${options.archived ? '<span class="archive-chip">已归档</span>' : ""}<button class="icon-button bookmark" type="button" aria-label="收藏这条情报" aria-pressed="false" title="收藏到此浏览器">${icon("bookmark")}</button></div>
     <h3>${bilingual(deal.title, copy.title)}</h3>
     <div class="content-summary"><span class="intro-label">内容简介</span><p class="excerpt t-zh">${escapeHtml(copy.intro)}</p><p class="excerpt t-en">${escapeHtml(deal.summary || "来源没有提供摘要。")}</p></div>
-    <dl class="facts" data-region-known="${hasSourceText(deal.regions)}" data-terms-known="${hasSourceText(deal.conditions)}" data-deadline-known="${stamp(deal.endsAt) !== 0}"><div><dt>来源标值</dt><dd class="offer-value">${value}</dd></div><div><dt>${deal.endsAt ? "截止日期" : "时间说明"}</dt><dd>${deal.endsAt ? escapeHtml(deadline) : bilingual(deadline, copy.field(deal.timeText))}</dd></div><div><dt>适用地区</dt><dd>${bilingual(show(deal.regions), copy.field(deal.regions))}</dd></div><div><dt>参与条件</dt><dd>${bilingual(show(deal.conditions), copy.field(deal.conditions))}</dd></div></dl>
-    <p class="translation-line">${translated}<time datetime="${escapeHtml(deal.lastVerifiedAt)}">${escapeHtml(shortDate(deal.lastVerifiedAt))} 来源核验</time></p>
+    <dl class="facts" data-first-seen="${stamp(deal.firstSeenAt)}" data-region-known="${hasSourceText(deal.regions)}" data-terms-known="${hasSourceText(deal.conditions)}" data-deadline-known="${stamp(deal.endsAt) !== 0}"><div><dt>原文优惠</dt><dd class="offer-value">${value}</dd></div><div><dt>参与条件</dt><dd>${bilingual(show(deal.conditions), copy.field(deal.conditions))}</dd></div><div><dt>适用地区</dt><dd>${bilingual(show(deal.regions), copy.field(deal.regions))}</dd></div><div><dt>${deal.endsAt ? "截止日期" : "时间说明"}</dt><dd>${deal.endsAt ? escapeHtml(deadline) : bilingual(deadline, copy.field(deal.timeText))}</dd></div></dl>
+    <p class="translation-line">${translated}<span>条目核验 <time datetime="${escapeHtml(deal.lastVerifiedAt)}">${escapeHtml(show(formatWhen(deal.lastVerifiedAt)))}</time></span></p>
+    <p class="saved-deadline" hidden>收藏提醒 · 7 天内截止</p>
     ${deal.riskNote ? '<span class="risk-flag">涉及金融或加密资产 · 请先查看风险与资格</span>' : ""}
     <div class="card-bottom">${source}${externalLink(destination, `查看原文 ${icon("external")}`, "visit")}</div>
     <details class="deal-details"${options.open ? " open" : ""}><summary>条件、来源与完整说明 ${icon("down")}</summary><div class="details-body"><dl class="full">
       <div><dt>活动名称</dt><dd>${bilingual(deal.title, copy.title)}</dd></div>
       <div class="t-zh"><dt>中文导读（本站整理）</dt><dd>${escapeHtml(copy.intro)}</dd></div>
-      <div><dt>完整优惠内容</dt><dd>${bilingual(show(deal.summary), copy.summary)}</dd></div>
+      <div><dt>来源原文摘录</dt><dd>${escapeHtml(show(deal.summary))}</dd></div>
+      ${copy.summary ? `<div class="t-zh"><dt>摘录译文</dt><dd>${escapeHtml(copy.summary)}</dd></div>` : ""}
       <div><dt>开始及截止时间</dt><dd>${bilingual(showSchedule(deal), durationZh ? `${durationZh}（未给出日历截止日）` : undefined)}</dd></div>
       <div><dt>参与条件</dt><dd>${bilingual(show(deal.conditions), copy.field(deal.conditions))}</dd></div>
       <div><dt>适用国家或地区</dt><dd>${bilingual(show(deal.regions), copy.field(deal.regions))}</dd></div>
@@ -122,15 +116,21 @@ function card(deal: DealRecord, options: { sections: string; archived: boolean; 
   </article>`;
 }
 
-function sourceRows(checks: SourceCheck[]): string {
+function sourceRows(checks: SourceCheck[], success: Map<string, string> | undefined): string {
   if (!checks.length) return '<p>尚无来源检查记录。信息将在下一轮更新后显示。</p>';
-  return `<div class="source-rows">${checks.map(check => `<div class="source-row${check.ok ? "" : " bad"}">${externalLink(check.sourceUrl, escapeHtml(check.sourceId))}<span>${check.ok ? "可访问" : "暂不可用"} · ${check.httpStatus ?? "—"}</span><small>本轮收录 ${check.itemsKept} 条${!check.ok ? " · 暂保留上一次可用记录" : ""}</small></div>`).join("")}</div>`;
+  return `<div class="source-rows">${checks.map(check => {
+    const lastSuccess = check.ok ? check.checkedAt : success?.get(check.sourceId);
+    const successLabel = lastSuccess ? formatWhen(lastSuccess) : success ? "暂无记录" : "暂无历史数据";
+    const failure = check.ok ? "" : /timeout|timed out|abort/i.test(check.error) ? "请求超时" : "本轮未成功";
+    return `<div class="source-row${check.ok ? "" : " bad"}">${externalLink(check.sourceUrl, escapeHtml(check.sourceId))}<span>${failure || "采集成功"} · ${check.httpStatus ?? "—"}</span><small>最近尝试 ${escapeHtml(formatWhen(check.checkedAt))}<br>最近成功 ${escapeHtml(successLabel)}<br>本轮收录 ${check.itemsKept} 条</small></div>`;
+  }).join("")}</div>`;
 }
 
 export function renderPage(input: {
   board: Board;
   deals?: DealRecord[];
   checks: SourceCheck[];
+  sourceSuccess?: Map<string, string>;
   run: RunRecord | null;
   now: Date;
   expand: boolean;
@@ -156,6 +156,7 @@ export function renderPage(input: {
   const views: Array<{ id: string; title: string; glyph: string; count: number }> = [
     { id: "all", title: "全部情报", glyph: "grid", count: input.board.activeCount },
     { id: "today", title: "今日更新", glyph: "sun", count: input.board.sections.A.length },
+    { id: "new", title: "回访新增", glyph: "sun", count: 0 },
     { id: "rank", title: "来源标值榜", glyph: "chart", count: input.board.sections.B.length },
     { id: "ending", title: "即将截止", glyph: "clock", count: input.board.sections.G.length },
     { id: "archived", title: "已结束档案", glyph: "archive", count: archivedIds.size },
@@ -172,10 +173,10 @@ export function renderPage(input: {
     });
   }).join("");
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}">
+<html lang="zh-CN" data-lang="${lang}" data-snapshot-at="${input.now.getTime()}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="全球羊毛情报中心：发现公开来源中的 AI 工具、云服务与数字优惠。支持中文阅读、原文对照、分类筛选和本机收藏。金额与资格以活动原文为准。"><title>全球羊毛情报中心 · GLOBAL DEAL HUNTER</title><style>${PAGE_CSS}</style></head>
 <body><a class="skip" href="#main">跳到优惠列表</a><div class="shell">
-  <aside class="sidebar"><a class="brand" href="/" aria-label="Deal Hunter 首页"><span class="brand-mark">${icon("radar")}</span><span><strong>Deal Hunter</strong><small>GLOBAL OPPORTUNITIES</small></span></a><p class="nav-label">发现 · DISCOVER</p><nav class="view-nav" aria-label="情报视图">${views.map(view => `<button class="view-tab" type="button" data-view="${view.id}" aria-pressed="${view.id === "all"}">${icon(view.glyph)}<span>${view.title}</span><b${view.id === "saved" ? ' id="saved-count"' : ""}>${view.count}</b></button>`).join("")}</nav><div class="side-note"><p><span class="signal"></span>持续整理公开来源</p><p>好机会很多，值得先看清条件。</p><a href="#sources">查看来源状态 ${icon("arrow")}</a></div></aside>
+  <aside class="sidebar"><a class="brand" href="/" aria-label="Deal Hunter 首页"><span class="brand-mark">${icon("radar")}</span><span><strong>Deal Hunter</strong><small>GLOBAL OPPORTUNITIES</small></span></a><p class="nav-label">发现 · DISCOVER</p><nav class="view-nav" aria-label="情报视图">${views.map(view => `<button class="view-tab" type="button" data-view="${view.id}" aria-pressed="${view.id === "all"}"${view.id === "new" ? " hidden" : ""}>${icon(view.glyph)}<span>${view.title}</span><b${view.id === "saved" ? ' id="saved-count"' : ""}>${view.count}</b></button>`).join("")}</nav><div class="side-note"><a href="#sources">查看来源状态 ${icon("arrow")}</a></div></aside>
   <main class="workspace" id="main"><header class="hero"><div class="hero-copy">${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照 · 未触发采集或 AI 翻译</p>' : ""}<p class="eyebrow">GLOBAL DEAL HUNTER</p><h1>全球羊毛情报中心</h1><p class="hero-description">汇集 AI 工具、云服务、学生资源与数字优惠。先看中文简介，再按地区、期限和条件核对原文。</p></div><div class="hero-stats" aria-label="情报概况"><div><strong>${input.board.activeCount}</strong><span>在册情报</span></div><div><strong>${ok}<span style="display:inline;font-size:16px"> / ${input.checks.length}</span></strong><span>本轮来源可用</span></div></div></header>
     ${input.dbError ? '<p class="error-banner" role="alert">情报暂时无法载入，请稍后刷新重试。来源原文仍是核对活动条件的依据。</p>' : `<p class="collection-status"><a href="#sources">${escapeHtml(runStatus)}</a>${checked ? `<time datetime="${escapeHtml(checked)}">${escapeHtml(lastUpdate)}</time>` : ""}</p>`}
     <section class="toolbar" aria-label="搜索与筛选"><div class="search-box">${icon("search")}<label class="sr-only" for="q">搜索标题、译文、来源或地区</label><input id="q" type="search" maxlength="160" placeholder="搜索 AI、云服务、学生优惠…" autocomplete="off" enterkeyhint="search" aria-controls="deal-list"><button class="icon-button" id="clear-search" type="button" aria-label="清除搜索" hidden>${icon("close")}</button><kbd class="shortcut" aria-hidden="true">/</kbd></div><div class="filter-row">
@@ -189,7 +190,7 @@ export function renderPage(input: {
     <section class="card-grid" id="deal-list" aria-label="优惠情报">${cards}</section>
     <section class="empty-state" id="empty-state"${deals.length ? " hidden" : ""}><div class="empty-symbol">${icon("search")}</div><h3 id="empty-title">暂时没有匹配的情报</h3><p id="empty-note">试试更短的关键词，或清除分类与优惠类型筛选。</p><button class="text-button" id="empty-reset" type="button">浏览全部情报 ${icon("arrow")}</button></section>
     <nav class="pagination" id="pagination" aria-label="列表分页" hidden><button class="page-button" id="previous-page" type="button">${icon("left")} 上一页</button><span class="page-info" id="page-info">1 / 1</span><button class="page-button" id="next-page" type="button">下一页 ${icon("right")}</button></nav>
-    <details class="sources" id="sources"><summary>${icon("globe")} 来源健康与更新记录<span class="status-label">${input.checks.length ? `${ok} / ${input.checks.length} 可用` : "暂无来源记录"}</span>${icon("down")}</summary><div class="sources-body"><p>${escapeHtml(runStatus)}${checked ? ` · ${escapeHtml(lastUpdate)}` : ""}。活动资格与优惠请核对原文。</p>${sourceRows(input.checks)}</div></details>
+    <details class="sources" id="sources"><summary>${icon("globe")} 来源健康与更新记录<span class="status-label">${input.checks.length ? `${ok} / ${input.checks.length} 成功` : "暂无来源记录"}</span>${icon("down")}</summary><div class="sources-body"><p>${escapeHtml(runStatus)}${checked ? ` · ${escapeHtml(lastUpdate)}` : ""}。活动资格与优惠请核对原文。</p>${sourceRows(input.checks, input.sourceSuccess)}</div></details>
     <details class="notice"><summary>关于信息、翻译与风险</summary><p>本站整理已抓取的公开来源。金额、日期、地区与条件没有写明时显示「待核实」，不补造承诺。中文标题与简介按收录原文翻译、整理，不代表重新验证活动；后台机器译文单独标注。原文变化后，旧的中文整理停止使用；没有可用译文时保留原文。Crypto、银行与卡片条目的风险和资格说明保留在详情中。来源链接去除常见跟踪与邀请参数。</p></details>
     <footer class="footer"><p>GLOBAL DEAL HUNTER</p><a href="#sources">来源与采集记录</a></footer>
   </main></div><div class="toast" id="toast" role="status" aria-live="polite"></div><script>${CLIENT_SCRIPT}</script></body></html>`;

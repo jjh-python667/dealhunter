@@ -1,6 +1,30 @@
 /** 中文翻译与导读，按收录原文精确匹配；不是活动重新核验。 */
 export const ZH_GUIDES = [
   {
+    "sourceId": "vercel-changelog",
+    "sourceTitle": "Gemini 4 Carbon now available on AI Gateway",
+    "sourceSummary": "It is available at 50% off through November 30, 2026: Gemini 4 Carbon is built for complex software engineering, sustained agentic work, and cybersecurity defense.",
+    "titleZh": "Vercel AI Gateway 的 Gemini 4 Carbon 限时五折",
+    "summaryZh": "Vercel 公告列出 Gemini 4 Carbon 五折，截止 2026 年 11 月 30 日。",
+    "introZh": "优惠对应 Vercel AI Gateway 上的 Gemini 4 Carbon。公告给出了折扣和截止日，适用地区与账户条件待核实。"
+  },
+  {
+    "sourceId": "vercel-changelog",
+    "sourceTitle": "Tencent Hy4 now available on AI Gateway",
+    "sourceSummary": "Hy4 from Tencent is now available on AI Gateway , at 50% off through December 31, 2026.",
+    "titleZh": "Vercel AI Gateway 的腾讯 Hy4 限时五折",
+    "summaryZh": "Vercel 公告列出腾讯 Hy4 五折，截止 2026 年 12 月 31 日。",
+    "introZh": "优惠对应 Vercel AI Gateway 上的腾讯 Hy4。公告给出了折扣和截止日，适用地区与账户条件待核实。"
+  },
+  {
+    "sourceId": "aws-whats-new",
+    "sourceTitle": "AWS Marketplace SaaS free trials now convert automatically to paid subscriptions",
+    "sourceSummary": "When a free trial ends, the buyer's subscription continues at the seller's usage-based pricing, so buyers pay only for what they use after the trial.",
+    "titleZh": "AWS Marketplace 试用结束后自动转为付费",
+    "summaryZh": "试用结束后，订阅按卖家的用量计价继续。",
+    "introZh": "这是试用转付费的政策公告。试用结束后继续使用会产生费用，试用时长和具体价格要查对应商品。"
+  },
+  {
     "sourceId": "azure-account",
     "sourceTitle": "Create Your Azure Free Account Or Pay As You Go | Microsoft Azure",
     "sourceSummary": "Some are always free to all Azure customers, and some are free for 12 months to new customers only",

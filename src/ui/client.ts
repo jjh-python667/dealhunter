@@ -20,8 +20,8 @@ export const CLIENT_SCRIPT = String.raw`
   const viewButtons = Array.from(document.querySelectorAll('[data-view]'));
   const params = new URLSearchParams(location.search);
   const validViews = ['all','today','rank','ending','archived','saved'];
-  const titles = {all:'全部情报',today:'今日更新',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
-  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类；没有发布时间时采用首次收录时间。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏仅保存在当前浏览器，包含已归档的记录。'};
+  const titles = {all:'全部情报',today:'今日更新',new:'回访新增',rank:'来源标值榜',ending:'即将截止',archived:'已结束档案',saved:'我的收藏'};
+  const notes = {all:'公开来源，原文可查。金额与资格以活动页面为准。',today:'按北京时间归类。没有发布时间时采用首次收录时间。',new:'按首次收录时间，显示自上次访问以来仍在册的情报。',rank:'按来源标值分级排序，币种不换算。',ending:'仅展示有明确日期、未来 7 天内截止的活动。',archived:'已结束或已归档的记录，仅供查阅。',saved:'收藏保存在当前浏览器，包含已归档的记录。'};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const PAGE_SIZE = 12;
   let savedIds = new Set();
@@ -29,6 +29,38 @@ export const CLIENT_SCRIPT = String.raw`
   let toastTimer;
   let inputTimer;
   let orderKey = '';
+  function previousVisit() {
+    const snapshot = Number(root.dataset.snapshotAt);
+    if (!Number.isFinite(snapshot) || snapshot <= 0 || document.querySelector('.error-banner')) return 0;
+    try {
+      const previous = Number(localStorage.getItem('dh-last-visit'));
+      const current = Date.now();
+      let baseline = previous > 0 && previous <= snapshot ? previous : 0;
+      try {
+        const session = JSON.parse(sessionStorage.getItem('dh-visit-session') || 'null');
+        if (session && session.touched <= current && current - session.touched < 30 * 60 * 1000 &&
+            Number.isFinite(session.baseline) && session.baseline >= 0 && session.baseline <= snapshot) {
+          baseline = session.baseline;
+        }
+        sessionStorage.setItem('dh-visit-session', JSON.stringify({baseline,touched:current}));
+      } catch {}
+      if (!(previous > snapshot)) localStorage.setItem('dh-last-visit',String(snapshot));
+      return baseline;
+    } catch { return 0; }
+  }
+  const visitCutoff = previousVisit();
+  const factsByCard = new Map(cards.map(card => [card,card.querySelector('.facts').dataset]));
+  const newlyCollected = new Set(cards.filter(card => {
+    const firstSeen = Number(factsByCard.get(card).firstSeen);
+    return visitCutoff > 0 && firstSeen > visitCutoff && firstSeen <= Number(root.dataset.snapshotAt) && card.dataset.archived !== 'true';
+  }));
+  const newView = document.querySelector('[data-view=new]');
+  if (visitCutoff) {
+    validViews.push('new');
+    newView.hidden = false;
+    newView.querySelector('b').textContent = String(newlyCollected.size);
+  }
+  const endingCards = cards.filter(card => card.dataset.sections.split(' ').includes('G') && card.dataset.archived !== 'true');
   function readSaved() {
     try {
       const parsed = JSON.parse(localStorage.getItem('dh-saved') || '[]');
@@ -109,6 +141,7 @@ export const CLIENT_SCRIPT = String.raw`
       const archived = card.dataset.archived === 'true';
       if (state.view === 'all' && archived) return false;
       if (state.view === 'today' && !sections.includes('A')) return false;
+      if (state.view === 'new' && !newlyCollected.has(card)) return false;
       if (state.view === 'rank' && !sections.includes('B')) return false;
       if (state.view === 'ending' && !sections.includes('G')) return false;
       if (state.view === 'archived' && !archived) return false;
@@ -117,7 +150,7 @@ export const CLIENT_SCRIPT = String.raw`
       else if (category.value !== 'all' && card.dataset.category !== category.value) return false;
       if (type.value !== 'all' && card.dataset.type !== type.value) return false;
       if (requiredFields.length) {
-        const facts = card.querySelector('.facts').dataset;
+        const facts = factsByCard.get(card);
         if (!requiredFields.every(field => facts[field] === 'true')) return false;
       }
       return !needle || card.dataset.search.includes(needle);
@@ -134,7 +167,13 @@ export const CLIENT_SCRIPT = String.raw`
       });
     }
     document.querySelector('#view-title').textContent = titles[state.view];
-    document.querySelector('#view-note').textContent = notes[state.view];
+    const dueSaved = endingCards.filter(card => savedIds.has(card.dataset.id)).length;
+    document.querySelector('#view-note').textContent = state.view === 'saved' && dueSaved
+      ? notes.saved + ' 有 ' + dueSaved + ' 条收藏将在 7 天内截止。'
+      : notes[state.view];
+    endingCards.forEach(card => {
+      card.querySelector('.saved-deadline').hidden = state.view !== 'saved' || !savedIds.has(card.dataset.id);
+    });
     document.querySelector('#result-status').textContent = matched.length ? '共 '+matched.length+' 条 · 显示 '+(offset+1)+'–'+Math.min(offset+PAGE_SIZE,matched.length) : '找到 0 条';
     viewButtons.forEach(button => button.setAttribute('aria-pressed',String(button.dataset.view === state.view)));
     const empty = document.querySelector('#empty-state'); empty.hidden = matched.length > 0;

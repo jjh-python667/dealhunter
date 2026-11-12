@@ -18,4 +18,5 @@ export const PAGE_CSS = String.raw`
 .evidence-filters legend{padding:0;font-weight:600}
 .evidence-filters label{display:inline-flex;align-items:center;gap:5px;min-height:44px;cursor:pointer}
 .evidence-filters input{margin:0;accent-color:var(--gold);width:16px;height:16px}
+.saved-deadline{margin:0 0 10px;color:var(--gold);font-size:12px}
 `;
