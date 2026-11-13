@@ -40,7 +40,7 @@ npm run preview
 
 生产入口仍是 `src/index.ts`。路由解析在 `src/routes.ts`，看板布局在 `src/page.ts`，门户首页在 `src/ui/home.ts`，详情页在 `src/ui/detail.ts`，顶部导航与共享卡片在 `src/ui/nav.ts`、`src/ui/shared.ts`，样式与交互分离在 `src/ui/`。`npm run preview` 会监听源码变化。
 
-本轮验证：139 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。领取反馈另做了本机真实 HTTP 验收（去重、限流、条款版本失效、管理员复核）。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
+本轮验证：142 项测试、类型检查、Worker dry-run 打包通过；headless Edge 在本机预览上跑完 33 项浏览器验收（首页→频道→详情→官方入口、搜索/筛选/分页/收藏/提醒、旧链接 302 与旧锚点、390px 与 1440px 均无横向溢出），并生成桌面与手机截图。领取反馈另做了本机真实 HTTP 验收（去重、限流、条款版本失效、管理员复核、英文文案）。本机验收不等同于 Cloudflare 线上 CPU 或模型效果验证。
 
 GitHub Actions 在 Ubuntu 与 Windows 的 Node.js 24 环境执行测试、类型检查和本地打包检查。
 
@@ -106,10 +106,12 @@ npm run preview
 详情页官方入口下方有一块「领取状态反馈」：三选一（还能领 / 已失效 / 不确定），无需登录。
 
 - 提交按「优惠 ID + 条款版本 + 浏览器随机标识」去重；同一版本重复提交返回「你已反馈过这版优惠」，不会重复计票。
-- 限流：同一浏览器 10 分钟内最多 3 次、24 小时内最多 10 次。原始 IP 不落库，只用于当天的短期网络分组摘要。
+- 限流：同一浏览器 10 分钟内最多 3 次、24 小时内最多 10 次；同一网络分组 10 分钟内最多 10 次、24 小时内最多 60 次，避免换个浏览器标识重复投票。原始 IP 不落库，只用于当天的短期网络分组摘要。
+- 哈希使用服务端密钥 `FEEDBACK_PEPPER`（Worker secret，不进仓库）；默认只在本机开发时使用公开回退值。首次配置 secret 后哈希会变化，已有反馈的浏览器需要重新反馈一次。
+- 页面语言跟随详情页：中文模式显示中文反馈文案，`?lang=en` 显示英文反馈文案（含提交回执）。
 - 公开提示只统计最近 72 小时、当前条款版本、未被人工压下的反馈；至少 3 个不同浏览器且来自 2 个网络分组才显示「近三天有访客反馈可领取」。2 个不同网络分组反馈「已失效」时暂停正向提示，进入人工复核。
 - 公开页面只显示汇总提示，不显示提交者标识或网络标识。审核用 `POST /api/admin/feedback/review`（同一个 `ADMIN_TOKEN`）把单条反馈标记为 `kept` / `held`。
-- `migrations/0005_feedback.sql` 是新增表。线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；0005 尚未应用到线上 D1。本轮只写代码，**没有操作远程数据库、没有部署**。
+- `migrations/0005_feedback.sql` 是反馈表，`migrations/0006_feedback_network_index.sql` 是网络层限流索引。线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；0005、0006 尚未应用到线上 D1。本轮只写代码，**没有操作远程数据库、没有部署**。
 - 本机预览里的反馈只存在内存中，刷新预览进程即清空，方便试用，不写入 D1。
 
 ### 个性化优惠雷达
@@ -291,7 +293,7 @@ npm test
 
 使用 Node 自带测试运行器，经 `tsx` 执行 `test/**/*.test.ts`。覆盖去重与跟踪参数、联盟/邀请链接丢弃、截止日期提取、过期判断、排序、空字段显示为「待核实」、页面原文消失后的归档计划，以及 `ADMIN_TOKEN` 门禁。
 
-运行 `npm test` 和 `npm run typecheck`。当前共 139 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护；反馈功能另覆盖三选一校验、条款版本失效、去重/限流、公开汇总门槛、冲突复核与管理员令牌。改绑定后重新运行 `npm run types`。
+运行 `npm test` 和 `npm run typecheck`。当前共 142 项测试通过，涵盖原有采集、鉴权与翻译，以及页面去重、中文覆盖、原文变更后的失效处理、原文回退、归档状态、链接安全与日期格式；门户化后新增路由解析与 302 旧链接、Worker 各路由状态码、首页精选规则与旧 hash 跳转、两个频道的作用域过滤与筛选控件、详情页第一屏四要素/费用规则/原文证据/归档状态与 XSS 防护；反馈功能另覆盖三选一校验、条款版本失效、去重/浏览器与网络限流、公开汇总门槛、冲突复核、英文文案、管理员令牌与带密钥哈希。改绑定后重新运行 `npm run types`。
 
 ## 更新现有 Worker
 
@@ -299,10 +301,11 @@ npm test
 
 1. `npx wrangler whoami`，确认登录的是拥有现有 Worker 的账号；需要时再登录。
 2. 核对 `wrangler.jsonc` 中的 Worker 名称和 D1 绑定，使用现有 `dealhunter` 数据库。
-3. 线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；本轮新增的只有 `0005_feedback.sql`（领取反馈表），尚未上线。部署时用 `npx wrangler d1 migrations apply dealhunter --remote` 应用 0005；不编辑已应用的迁移。本轮没有执行远程迁移。
+3. 线上已应用 0001、0002、0003_translation_queue、0004_portal_snapshots；本轮新增的是 `0005_feedback.sql`（领取反馈表）和 `0006_feedback_network_index.sql`（网络层限流索引），尚未上线。部署时用 `npx wrangler d1 migrations apply dealhunter --remote` 应用 0005、0006；不编辑已应用的迁移。本轮没有执行远程迁移。
 4. 保留现有 `ADMIN_TOKEN`。仅当尚未配置时，使用 `npx wrangler secret put ADMIN_TOKEN` 的交互输入，不把令牌写进命令参数或源码。
-5. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
-6. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
+5. 配置反馈哈希密钥 `FEEDBACK_PEPPER`（`npx wrangler secret put FEEDBACK_PEPPER`，随机长字符串）；不配置时只能使用本机开发回退值，不建议上线。配置或轮换后，已有反馈的浏览器会重新获得一次反馈机会。
+6. `npm test && npm run typecheck`，再执行 `npx wrangler deploy --dry-run --outdir dist`。
+7. 确认构建正确后执行 `npx wrangler deploy`。通过 Cloudflare 连接器部署时，先运行 `node deploy/build-translate-deploy.cjs` 更新部署脚本，然后再使用其输出。
 
 普通预览不需要 Cloudflare 登录或密钥。翻译模型的真实输出与用量，需要上线绑定后单独验证；本轮没有发起模型请求。
 

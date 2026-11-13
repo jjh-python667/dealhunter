@@ -13,6 +13,15 @@ export const FEEDBACK_RATE_WINDOW_MAX = 3;
 /** Same-browser daily limit: 10 submissions per 24 hours. */
 export const FEEDBACK_DAILY_MS = 24 * 60 * 60 * 1000;
 export const FEEDBACK_DAILY_MAX = 10;
+/**
+ * Network-layer limits stop a visitor from resetting the browser id to vote
+ * again. They are deliberately looser than the browser limits because many
+ * legitimate visitors share one office/school network.
+ */
+export const FEEDBACK_NETWORK_WINDOW_MS = 10 * 60 * 1000;
+export const FEEDBACK_NETWORK_WINDOW_MAX = 10;
+export const FEEDBACK_NETWORK_DAILY_MS = 24 * 60 * 60 * 1000;
+export const FEEDBACK_NETWORK_DAILY_MAX = 60;
 /** Kept for the operator; a cleanup job may delete older rows later. */
 export const FEEDBACK_RETENTION_DAYS = 30;
 
@@ -55,12 +64,20 @@ export function feedbackWindowStart(now: Date): string {
 /**
  * Browser hash is stable (same browser, same deal version → one vote forever),
  * while the network hash rotates daily so it can only be used for short-lived
- * grouping, never as a long-term identifier.
+ * grouping, never as a long-term identifier. Both are keyed with
+ * FEEDBACK_PEPPER in production; the public fallback is only for local dev.
  */
-export async function feedbackHashes(input: { browserId: string; networkKey: string; now: Date }): Promise<{ browserHash: string; networkHash: string }> {
+export async function feedbackHashes(input: {
+  browserId: string;
+  networkKey: string;
+  now: Date;
+  pepper?: string;
+}): Promise<{ browserHash: string; networkHash: string }> {
   const day = input.now.toISOString().slice(0, 10);
-  const browserHash = await sha256Hex(`browser|${input.browserId}|dealhunter-feedback-v1`);
-  const networkHash = await sha256Hex(`network|${day}|${input.networkKey.slice(0, 80)}|dealhunter-feedback-v1`);
+  const pepper = (input.pepper ?? "").trim();
+  const salt = pepper ? `dealhunter-feedback-v2|${pepper}` : "dealhunter-feedback-v1-dev";
+  const browserHash = await sha256Hex(`browser|${input.browserId}|${salt}`);
+  const networkHash = await sha256Hex(`network|${day}|${input.networkKey.slice(0, 80)}|${salt}`);
   return { browserHash, networkHash };
 }
 

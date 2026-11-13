@@ -51,6 +51,23 @@ test("feedback hashes are deterministic, network hashes rotate daily and never e
   }
 });
 
+test("a secret pepper changes both hashes and stays out of the output", async () => {
+  const base = { browserId: "browser-test-0000001", networkKey: "203.0.113.10", now: new Date("2026-11-10T01:00:00Z") };
+  const unpeppered = await feedbackHashes(base);
+  const peppered = await feedbackHashes({ ...base, pepper: "deployment-secret" });
+  const samePepper = await feedbackHashes({ ...base, pepper: "deployment-secret" });
+  const otherPepper = await feedbackHashes({ ...base, pepper: "other-secret" });
+  assert.notEqual(peppered.browserHash, unpeppered.browserHash);
+  assert.notEqual(peppered.networkHash, unpeppered.networkHash);
+  assert.equal(peppered.browserHash, samePepper.browserHash);
+  assert.equal(peppered.networkHash, samePepper.networkHash);
+  assert.notEqual(peppered.networkHash, otherPepper.networkHash);
+  for (const value of [peppered.browserHash, peppered.networkHash]) {
+    assert.match(value, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(value, /deployment-secret/);
+  }
+});
+
 test("public display requires three browsers and two network groups", () => {
   assert.deepEqual(summarizeFeedback([]), EMPTY_FEEDBACK);
   const notYet = summarizeFeedback([{ vote: "works", total: 2, browsers: 2, networks: 1, last_at: null }]);

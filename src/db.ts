@@ -190,6 +190,15 @@ export async function feedbackCountForBrowser(db: QueryDb, browserHash: string, 
   return Number(row?.n ?? 0);
 }
 
+/** Network-layer count so resetting the browser id cannot bypass the limit. */
+export async function feedbackCountForNetwork(db: QueryDb, networkHash: string, since: string): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM deal_feedback WHERE network_hash = ? AND created_at >= ?`)
+    .bind(networkHash, since)
+    .first<{ n: number }>();
+  return Number(row?.n ?? 0);
+}
+
 /** Operator decision. Only "kept" and "held" are exposed; nothing is ever deleted. */
 export async function reviewFeedback(
   db: QueryDb,

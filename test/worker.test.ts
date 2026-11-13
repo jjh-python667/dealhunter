@@ -76,8 +76,9 @@ class FakeStatement {
       return { id } as T;
     }
     if (sql.includes("FROM deal_feedback") && sql.includes("COUNT(*)")) {
-      const [browserHash, since] = this.params.map(String);
-      const n = this.db.feedback.filter(row => row.browserHash === browserHash && row.createdAt >= since!).length;
+      const [hash, since] = this.params.map(String);
+      const field: "browserHash" | "networkHash" = sql.includes("network_hash") ? "networkHash" : "browserHash";
+      const n = this.db.feedback.filter(row => row[field] === hash && row.createdAt >= since!).length;
       return { n } as T;
     }
     if (sql.includes("UPDATE deal_feedback SET review_status")) {
@@ -338,6 +339,28 @@ test("a burst from one browser is rate limited before another row is written", a
   db.feedbackSeq = 3;
   const response = await postFeedback(feedbackBody(), localEnv);
   assert.equal(response.status, 429);
-  assert.equal(((await response.json()) as { error: string }).error, "rate_limited");
+  const data = (await response.json()) as { error: string; scope?: string };
+  assert.equal(data.error, "rate_limited");
+  assert.equal(data.scope, "browser");
   assert.equal(db.feedback.length, 3);
+});
+
+test("the network-layer limit stops a visitor from rotating the browser id", async () => {
+  const db = new FakeDb(deals);
+  const localEnv = { DB: db } as unknown as Env;
+  const { networkHash } = await feedbackHashes({ browserId: FEEDBACK_BROWSER, networkKey: "unknown", now: new Date() });
+  for (let index = 0; index < 10; index += 1) {
+    db.feedback.push({
+      id: index + 1, dealId: `other-deal-${index}`, termsVersion: "abc123", vote: "works",
+      browserHash: `seed-browser-${String(index).padStart(4, "0")}`, networkHash, createdAt: new Date().toISOString(),
+      reviewStatus: "pending", reviewNote: "", reviewedAt: null,
+    });
+  }
+  db.feedbackSeq = 10;
+  const response = await postFeedback(feedbackBody(), localEnv);
+  assert.equal(response.status, 429);
+  const data = (await response.json()) as { error: string; scope?: string };
+  assert.equal(data.error, "rate_limited");
+  assert.equal(data.scope, "network");
+  assert.equal(db.feedback.length, 10);
 });

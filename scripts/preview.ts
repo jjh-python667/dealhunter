@@ -116,6 +116,7 @@ async function handleFeedback(request: IncomingMessage, response: ServerResponse
     browserId,
     networkKey: request.socket.remoteAddress ?? "local",
     now: at,
+    pepper: process.env.FEEDBACK_PEPPER || "local-preview-pepper",
   });
   const existing = feedbackRows.some((row) => row.dealId === deal.id && row.termsVersion === currentVersion && row.browserHash === browserHash);
   if (!existing) {

@@ -301,3 +301,25 @@ test("preview and language switches keep the page honest", () => {
   assert.match(html, /data-set-lang-server="zh"/);
   assert.doesNotMatch(html, /undefined/);
 });
+
+test("claim-status feedback copy follows the page language", () => {
+  const zh = detail(deal("feedback-language"), { lang: "zh" });
+  const en = detail(deal("feedback-language"), {
+    lang: "en",
+    feedback: { works: 3, expired: 0, unknown: 0, total: 3, lastAt: null, worksBrowsers: 3, worksNetworks: 2, expiredNetworks: 0, display: "positive" },
+  });
+  assert.match(zh, /领取状态反馈/);
+  assert.match(zh, /还能领/);
+  assert.match(zh, /提交反馈/);
+  assert.doesNotMatch(zh, /Claim status feedback/);
+
+  assert.match(en, /Claim status feedback/);
+  assert.match(en, /Still claimable/);
+  assert.match(en, /Expired/);
+  assert.match(en, /Not sure/);
+  assert.match(en, /Submit feedback/);
+  assert.match(en, /One vote per offer version/);
+  assert.match(en, /Visitors reported this offer as claimable/);
+  assert.match(en, /Eligibility varies by region and account/);
+  assert.doesNotMatch(en, /领取状态反馈/);
+});
