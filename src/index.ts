@@ -108,6 +108,13 @@ function feedbackPepper(env: Env): string | undefined {
  * never mix feedback across changed terms.
  */
 async function submitFeedback(request: Request, db: QueryDb, pepper: string | undefined): Promise<Response> {
+  // No public fallback: without the server-side secret, refuse rather than hash
+  // predictable identifiers. The detail page itself stays readable; only the
+  // write path is disabled.
+  if (!pepper) {
+    console.error(JSON.stringify({ message: "feedback unavailable: FEEDBACK_PEPPER is not configured" }));
+    return json({ error: "feedback_unavailable" }, 503);
+  }
   const payload = await readJsonObject(request);
   if (!payload) return json({ error: "invalid_payload" }, 400);
   const dealId = typeof payload.dealId === "string" ? payload.dealId.trim() : "";

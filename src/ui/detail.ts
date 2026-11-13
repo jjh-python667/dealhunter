@@ -159,6 +159,9 @@ export function renderDealDetail(input: DetailInput): string {
   const evidence = `<section class="detail-section" id="evidence" aria-labelledby="evidence-title"><div class="section-head"><h2 id="evidence-title">原文证据</h2><p>可回溯的来源摘录与时间</p></div><blockquote class="source-excerpt"><p>${escapeHtml(show(deal.summary))}</p></blockquote>${copy.summary ? `<p class="excerpt-translation">中文摘录：${escapeHtml(copy.summary)}</p>` : ""}<dl class="detail-dl evidence-list"><div><dt>来源</dt><dd>${sourceRow}</dd></div><div><dt>来源发布时间</dt><dd>${escapeHtml(show(formatWhen(deal.publishedAt)))}</dd></div><div><dt>本站首次收录</dt><dd>${escapeHtml(show(formatWhen(deal.firstSeenAt)))}</dd></div><div><dt>最后来源核验</dt><dd>${escapeHtml(show(formatWhen(deal.lastVerifiedAt)))}</dd></div><div><dt>活动时间</dt><dd>${escapeHtml(showSchedule(deal))}</dd></div><div><dt>官方链接</dt><dd>${officialRow}</dd></div>${deal.riskNote.trim() ? `<div><dt>风险提示</dt><dd class="risk-inline">${escapeHtml(deal.riskNote)}</dd></div>` : ""}</dl></section>`;
 
   const footer = '<footer class="detail-footer"><p><a href="/deals">← 返回全部情报</a> · <a href="/deals?view=saved">我的收藏</a> · <a href="/">回到首页</a></p><p>金额、资格与期限以来源原文和官方活动页为准；本站只做公开信息整理。</p></footer>';
+  const noscript = lang === "en"
+    ? '<noscript><p class="noscript">Bookmarking, sharing and claim-status feedback need JavaScript. Offer details, costs and source evidence remain readable without scripts.</p></noscript>'
+    : '<noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-lang="${lang}">
@@ -178,7 +181,7 @@ export function renderDealDetail(input: DetailInput): string {
     </dl>
     ${actions}
     ${feedbackBlock}
-    <noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>
+    ${noscript}
   </article>
   ${costs}
   ${steps}

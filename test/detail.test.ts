@@ -321,5 +321,7 @@ test("claim-status feedback copy follows the page language", () => {
   assert.match(en, /One vote per offer version/);
   assert.match(en, /Visitors reported this offer as claimable/);
   assert.match(en, /Eligibility varies by region and account/);
+  assert.match(en, /Bookmarking, sharing and claim-status feedback need JavaScript/);
   assert.doesNotMatch(en, /领取状态反馈/);
+  assert.match(zh, /收藏、分享与领取反馈需要 JavaScript/);
 });

@@ -64,18 +64,21 @@ export function feedbackWindowStart(now: Date): string {
 /**
  * Browser hash is stable (same browser, same deal version → one vote forever),
  * while the network hash rotates daily so it can only be used for short-lived
- * grouping, never as a long-term identifier. Both are keyed with
- * FEEDBACK_PEPPER in production; the public fallback is only for local dev.
+ * grouping, never as a long-term identifier. Both require the server-side
+ * FEEDBACK_PEPPER: there is deliberately no public fallback in Worker code, so
+ * a deployment without the secret refuses feedback instead of silently using a
+ * predictable salt. Local preview owns its own fallback in scripts/preview.ts.
  */
 export async function feedbackHashes(input: {
   browserId: string;
   networkKey: string;
   now: Date;
-  pepper?: string;
+  pepper: string;
 }): Promise<{ browserHash: string; networkHash: string }> {
+  const pepper = input.pepper.trim();
+  if (!pepper) throw new Error("FEEDBACK_PEPPER is not configured");
   const day = input.now.toISOString().slice(0, 10);
-  const pepper = (input.pepper ?? "").trim();
-  const salt = pepper ? `dealhunter-feedback-v2|${pepper}` : "dealhunter-feedback-v1-dev";
+  const salt = `dealhunter-feedback-v2|${pepper}`;
   const browserHash = await sha256Hex(`browser|${input.browserId}|${salt}`);
   const networkHash = await sha256Hex(`network|${day}|${input.networkKey.slice(0, 80)}|${salt}`);
   return { browserHash, networkHash };
