@@ -34,6 +34,40 @@ function metaDescription(deal: DealRecord, title: string): string {
   return (raw || `${title}：优惠力度、领取资格、截止时间与原文证据`).slice(0, 180);
 }
 
+/** Feedback UI copy follows the page language, same as the rest of the portal. */
+function feedbackCopy(lang: "zh" | "en") {
+  if (lang === "en") {
+    return {
+      heading: "Claim status feedback",
+      sub: "Anonymous; no account needed. One vote per offer version.",
+      positive: "Visitors reported this offer as claimable in the last 3 days.",
+      positiveNote: "Eligibility varies by region and account; check the official terms.",
+      conflict: "Recent feedback conflicts. A human review is pending; rely on the official page.",
+      none: "Not enough feedback yet. Yours will be reviewed first.",
+      legend: "What happened when you tried?",
+      works: "Still claimable",
+      expired: "Expired",
+      unknown: "Not sure",
+      submit: "Submit feedback",
+      note: "Choose “Still claimable” only after completing the claim. Choose “Expired” when the official page says it has ended or the entry is closed. Choose “Not sure” for region or eligibility limits, login failures, or when you cannot tell. Feedback only supports verification and never changes the offer status automatically.",
+    };
+  }
+  return {
+    heading: "领取状态反馈",
+    sub: "匿名反馈，不收集账号；同一版本每人一次。",
+    positive: "近三天有访客反馈可领取。",
+    positiveNote: "领取结果因地区和资格而异，请核对官方条款。",
+    conflict: "近期反馈存在冲突，正在人工复核；请以官方页面为准。",
+    none: "还没有足够反馈。你的反馈会先用于审核。",
+    legend: "你刚才实际遇到的情况",
+    works: "还能领",
+    expired: "已失效",
+    unknown: "不确定",
+    submit: "提交反馈",
+    note: "实际完成领取时选「还能领」；官方页面明确结束或入口关闭时选「已失效」；遇到地区限制、资格不符、登录失败或暂时无法判断时选「不确定」。反馈只用于补充核验，不会自动改变活动状态。",
+  };
+}
+
 /**
  * One shareable deal page, server-rendered. The first screen answers the four
  * questions a visitor (or a search result) actually has: how good is the offer,
@@ -91,24 +125,25 @@ export function renderDealDetail(input: DetailInput): string {
 
   const feedback = input.feedback ?? EMPTY_FEEDBACK;
   const termsVersion = dealTermsVersion(deal);
+  const fb = feedbackCopy(lang);
   const feedbackPublic = feedback.display === "positive"
-    ? '<p class="feedback-public positive">近三天有访客反馈可领取。<span>领取结果因地区和资格而异，请核对官方条款。</span></p>'
+    ? `<p class="feedback-public positive">${fb.positive}<span>${fb.positiveNote}</span></p>`
     : feedback.display === "conflict"
-      ? '<p class="feedback-public conflict">近期反馈存在冲突，正在人工复核；请以官方页面为准。</p>'
-      : '<p class="feedback-public">还没有足够反馈。你的反馈会先用于审核。</p>';
+      ? `<p class="feedback-public conflict">${fb.conflict}</p>`
+      : `<p class="feedback-public">${fb.none}</p>`;
   const feedbackBlock = `<section class="detail-feedback" data-deal-id="${escapeHtml(deal.id)}" data-terms-version="${escapeHtml(termsVersion)}" aria-labelledby="feedback-title">
-    <div class="feedback-head"><h2 id="feedback-title">领取状态反馈</h2><p>匿名反馈，不收集账号；同一版本每人一次。</p></div>
+    <div class="feedback-head"><h2 id="feedback-title">${fb.heading}</h2><p>${fb.sub}</p></div>
     ${feedbackPublic}
     <form class="feedback-form">
-      <fieldset><legend>你刚才实际遇到的情况</legend>
-        <label><input type="radio" name="vote" value="works"> 还能领</label>
-        <label><input type="radio" name="vote" value="expired"> 已失效</label>
-        <label><input type="radio" name="vote" value="unknown"> 不确定</label>
+      <fieldset><legend>${fb.legend}</legend>
+        <label><input type="radio" name="vote" value="works"> ${fb.works}</label>
+        <label><input type="radio" name="vote" value="expired"> ${fb.expired}</label>
+        <label><input type="radio" name="vote" value="unknown"> ${fb.unknown}</label>
       </fieldset>
-      <button type="submit" class="feedback-submit">提交反馈</button>
+      <button type="submit" class="feedback-submit">${fb.submit}</button>
       <p class="feedback-status" role="status" aria-live="polite"></p>
     </form>
-    <p class="feedback-note">实际完成领取时选「还能领」；官方页面明确结束或入口关闭时选「已失效」；遇到地区限制、资格不符、登录失败或暂时无法判断时选「不确定」。反馈只用于补充核验，不会自动改变活动状态。</p>
+    <p class="feedback-note">${fb.note}</p>
   </section>`;
 
   const costs = `<section class="detail-section" id="costs" aria-labelledby="costs-title"><div class="section-head"><h2 id="costs-title">费用与规则</h2><p>只列来源原文明确写出的条件；没有写到的标为「待核实」。</p></div><dl class="detail-dl"><div><dt>是否需要绑卡或付款方式</dt><dd>${evidenceLabel(proof.card, "需要付款方式", "无需绑卡", proof.paymentQuote)}</dd></div><div><dt>是否自动续费或转付费</dt><dd>${evidenceLabel(proof.renewal, "自动续费或转付费", "无自动续费", proof.renewalQuote)}</dd></div><div><dt>试用后价格或计费（原文）</dt><dd>${escapeHtml(show(proof.followup))}</dd></div></dl></section>`;
@@ -124,6 +159,9 @@ export function renderDealDetail(input: DetailInput): string {
   const evidence = `<section class="detail-section" id="evidence" aria-labelledby="evidence-title"><div class="section-head"><h2 id="evidence-title">原文证据</h2><p>可回溯的来源摘录与时间</p></div><blockquote class="source-excerpt"><p>${escapeHtml(show(deal.summary))}</p></blockquote>${copy.summary ? `<p class="excerpt-translation">中文摘录：${escapeHtml(copy.summary)}</p>` : ""}<dl class="detail-dl evidence-list"><div><dt>来源</dt><dd>${sourceRow}</dd></div><div><dt>来源发布时间</dt><dd>${escapeHtml(show(formatWhen(deal.publishedAt)))}</dd></div><div><dt>本站首次收录</dt><dd>${escapeHtml(show(formatWhen(deal.firstSeenAt)))}</dd></div><div><dt>最后来源核验</dt><dd>${escapeHtml(show(formatWhen(deal.lastVerifiedAt)))}</dd></div><div><dt>活动时间</dt><dd>${escapeHtml(showSchedule(deal))}</dd></div><div><dt>官方链接</dt><dd>${officialRow}</dd></div>${deal.riskNote.trim() ? `<div><dt>风险提示</dt><dd class="risk-inline">${escapeHtml(deal.riskNote)}</dd></div>` : ""}</dl></section>`;
 
   const footer = '<footer class="detail-footer"><p><a href="/deals">← 返回全部情报</a> · <a href="/deals?view=saved">我的收藏</a> · <a href="/">回到首页</a></p><p>金额、资格与期限以来源原文和官方活动页为准；本站只做公开信息整理。</p></footer>';
+  const noscript = lang === "en"
+    ? '<noscript><p class="noscript">Bookmarking, sharing and claim-status feedback need JavaScript. Offer details, costs and source evidence remain readable without scripts.</p></noscript>'
+    : '<noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN" data-lang="${lang}">
@@ -143,7 +181,7 @@ export function renderDealDetail(input: DetailInput): string {
     </dl>
     ${actions}
     ${feedbackBlock}
-    <noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>
+    ${noscript}
   </article>
   ${costs}
   ${steps}
@@ -233,6 +271,28 @@ export const DETAIL_SCRIPT = String.raw`
     var feedbackSubmit = feedbackBox.querySelector(".feedback-submit");
     var feedbackDeal = feedbackBox.getAttribute("data-deal-id") || "";
     var feedbackVersion = feedbackBox.getAttribute("data-terms-version") || "";
+    var feedbackLang = document.documentElement.getAttribute("data-lang") === "en" ? "en" : "zh";
+    var feedbackText = feedbackLang === "en"
+      ? {
+          select: "Choose one option first.",
+          submitting: "Submitting…",
+          created: "Thanks — your feedback is recorded.",
+          duplicate: "You already fed back this version.",
+          stale: "This offer has changed. Refresh the page and try again.",
+          limited: "Too many submissions. Please try again later.",
+          missing: "This offer no longer exists.",
+          unknown: "Unknown result. Please try again."
+        }
+      : {
+          select: "请先选择一种情况。",
+          submitting: "正在提交…",
+          created: "已收到你的反馈。",
+          duplicate: "你已反馈过这版优惠。",
+          stale: "优惠已经更新，请刷新页面后再反馈。",
+          limited: "操作过于频繁，请稍后再试。",
+          missing: "这条优惠暂时不存在。",
+          unknown: "提交结果未知，请重试。"
+        };
     function feedbackBrowserId() {
       var key = "dh-feedback-id";
       try {
@@ -252,11 +312,11 @@ export const DETAIL_SCRIPT = String.raw`
         event.preventDefault();
         var checked = feedbackForm.querySelector("input[name=vote]:checked");
         if (!checked) {
-          feedbackStatus.textContent = "请先选择一种情况。";
+          feedbackStatus.textContent = feedbackText.select;
           return;
         }
         feedbackSubmit.disabled = true;
-        feedbackStatus.textContent = "正在提交…";
+        feedbackStatus.textContent = feedbackText.submitting;
         fetch("/api/feedback", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -267,18 +327,18 @@ export const DETAIL_SCRIPT = String.raw`
           });
         }).then(function (result) {
           if (result.ok) {
-            feedbackStatus.textContent = result.data && result.data.created === false ? "你已反馈过这版优惠。" : "已收到你的反馈。";
+            feedbackStatus.textContent = result.data && result.data.created === false ? feedbackText.duplicate : feedbackText.created;
           } else if (result.status === 409) {
-            feedbackStatus.textContent = "优惠已经更新，请刷新页面后再反馈。";
+            feedbackStatus.textContent = feedbackText.stale;
           } else if (result.status === 429) {
-            feedbackStatus.textContent = "操作过于频繁，请稍后再试。";
+            feedbackStatus.textContent = feedbackText.limited;
           } else if (result.status === 404) {
-            feedbackStatus.textContent = "这条优惠暂时不存在。";
+            feedbackStatus.textContent = feedbackText.missing;
           } else {
-            feedbackStatus.textContent = "提交结果未知，请重试。";
+            feedbackStatus.textContent = feedbackText.unknown;
           }
         }).catch(function () {
-          feedbackStatus.textContent = "提交结果未知，请重试。";
+          feedbackStatus.textContent = feedbackText.unknown;
         }).then(function () {
           feedbackSubmit.disabled = false;
         });

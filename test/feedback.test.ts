@@ -34,21 +34,42 @@ test("the public aggregate window is 72 hours", () => {
   assert.equal(feedbackWindowStart(now), "2026-11-07T03:00:00.000Z");
 });
 
+const TEST_PEPPER = "unit-test-pepper";
+
 test("feedback hashes are deterministic, network hashes rotate daily and never expose the raw address", async () => {
   const browserId = "browser-test-0000001";
-  const first = await feedbackHashes({ browserId, networkKey: "203.0.113.10", now: new Date("2026-11-10T01:00:00Z") });
-  const sameDay = await feedbackHashes({ browserId, networkKey: "203.0.113.10", now: new Date("2026-11-10T22:00:00Z") });
-  const nextDay = await feedbackHashes({ browserId, networkKey: "203.0.113.10", now: new Date("2026-11-11T01:00:00Z") });
+  const base = { browserId, networkKey: "203.0.113.10", pepper: TEST_PEPPER };
+  const first = await feedbackHashes({ ...base, now: new Date("2026-11-10T01:00:00Z") });
+  const sameDay = await feedbackHashes({ ...base, now: new Date("2026-11-10T22:00:00Z") });
+  const nextDay = await feedbackHashes({ ...base, now: new Date("2026-11-11T01:00:00Z") });
   assert.equal(first.browserHash, sameDay.browserHash);
   assert.equal(first.networkHash, sameDay.networkHash);
   assert.equal(first.browserHash, nextDay.browserHash);
   assert.notEqual(first.networkHash, nextDay.networkHash);
-  const otherNetwork = await feedbackHashes({ browserId, networkKey: "198.51.100.7", now: new Date("2026-11-10T01:00:00Z") });
+  const otherNetwork = await feedbackHashes({ ...base, networkKey: "198.51.100.7", now: new Date("2026-11-10T01:00:00Z") });
   assert.notEqual(first.networkHash, otherNetwork.networkHash);
   for (const value of [first.browserHash, first.networkHash]) {
     assert.match(value, /^[a-f0-9]{64}$/);
     assert.doesNotMatch(value, /203\.0\.113\.10|browser-test/);
   }
+});
+
+test("a secret pepper changes both hashes, stays out of the output and is mandatory", async () => {
+  const base = { browserId: "browser-test-0000001", networkKey: "203.0.113.10", now: new Date("2026-11-10T01:00:00Z") };
+  const peppered = await feedbackHashes({ ...base, pepper: "deployment-secret" });
+  const samePepper = await feedbackHashes({ ...base, pepper: "deployment-secret" });
+  const otherPepper = await feedbackHashes({ ...base, pepper: "other-secret" });
+  assert.equal(peppered.browserHash, samePepper.browserHash);
+  assert.equal(peppered.networkHash, samePepper.networkHash);
+  assert.notEqual(peppered.networkHash, otherPepper.networkHash);
+  for (const value of [peppered.browserHash, peppered.networkHash]) {
+    assert.match(value, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(value, /deployment-secret/);
+  }
+  await assert.rejects(
+    () => feedbackHashes({ ...base, pepper: "   " }),
+    /FEEDBACK_PEPPER is not configured/,
+  );
 });
 
 test("public display requires three browsers and two network groups", () => {

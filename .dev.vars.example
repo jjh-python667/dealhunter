@@ -1,3 +1,7 @@
 # Local only. Copy to .dev.vars. Never commit .dev.vars or a real token.
-# Production: `wrangler secret put ADMIN_TOKEN` (that uploads a secret; it is not a deploy of this repo's placeholder database).
+# Production: `wrangler secret put ADMIN_TOKEN` and `wrangler secret put FEEDBACK_PEPPER`
+# (that uploads secrets; it is not a deploy of this repo's placeholder database).
 ADMIN_TOKEN=replace-with-a-long-random-string
+# Server-side pepper for anonymous feedback hashes. Not needed for local preview
+# (the preview uses a local fallback), but production should always set it.
+FEEDBACK_PEPPER=replace-with-another-long-random-string

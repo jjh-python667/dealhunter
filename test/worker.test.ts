@@ -76,8 +76,9 @@ class FakeStatement {
       return { id } as T;
     }
     if (sql.includes("FROM deal_feedback") && sql.includes("COUNT(*)")) {
-      const [browserHash, since] = this.params.map(String);
-      const n = this.db.feedback.filter(row => row.browserHash === browserHash && row.createdAt >= since!).length;
+      const [hash, since] = this.params.map(String);
+      const field: "browserHash" | "networkHash" = sql.includes("network_hash") ? "networkHash" : "browserHash";
+      const n = this.db.feedback.filter(row => row[field] === hash && row.createdAt >= since!).length;
       return { n } as T;
     }
     if (sql.includes("UPDATE deal_feedback SET review_status")) {
@@ -131,7 +132,7 @@ class FakeDb {
   }
 }
 
-const env = { DB: new FakeDb(deals) } as unknown as Env;
+const env = { DB: new FakeDb(deals), FEEDBACK_PEPPER: "worker-test-pepper" } as unknown as Env;
 
 async function fetchPath(path: string): Promise<Response> {
   return worker.fetch!(new Request(`https://dealhunter.example${path}`), env);
@@ -221,6 +222,7 @@ test("public APIs still answer without touching the portal routes", async () => 
 /* ---------------------------------------------------------------------- */
 
 const FEEDBACK_BROWSER = "browser-test-0000001";
+const TEST_PEPPER = "worker-test-pepper";
 
 function feedbackBody(deal: DealRecord = aiDeal, vote = "works", browserId = FEEDBACK_BROWSER) {
   return { dealId: deal.id, termsVersion: dealTermsVersion(deal), vote, browserId };
@@ -246,7 +248,7 @@ async function postReview(body: unknown, customEnv: Env, token?: string): Promis
 
 test("feedback is stored anonymously and shown as an idempotent form on the detail page", async () => {
   const db = new FakeDb(deals);
-  const localEnv = { DB: db } as unknown as Env;
+  const localEnv = { DB: db, FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
   const first = await postFeedback(feedbackBody(), localEnv);
   assert.equal(first.status, 200);
   const firstData = (await first.json()) as { ok: boolean; created: boolean; summary: { works: number; display: string } };
@@ -272,7 +274,7 @@ test("feedback is stored anonymously and shown as an idempotent form on the deta
 
 test("feedback rejects invalid payloads and stale versions without writing", async () => {
   const db = new FakeDb(deals);
-  const localEnv = { DB: db } as unknown as Env;
+  const localEnv = { DB: db, FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
   const invalidVote = await postFeedback(feedbackBody(aiDeal, "maybe"), localEnv);
   assert.equal(invalidVote.status, 400);
   assert.equal(((await invalidVote.json()) as { error: string }).error, "invalid_vote");
@@ -302,7 +304,7 @@ test("feedback rejects invalid payloads and stale versions without writing", asy
 
 test("only the admin token can move a feedback row into review", async () => {
   const db = new FakeDb(deals);
-  const unconfigured = { DB: db } as unknown as Env;
+  const unconfigured = { DB: db, FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
   const seed = await postFeedback(feedbackBody(), unconfigured);
   assert.equal(seed.status, 200);
   const id = db.feedback[0]!.id;
@@ -310,7 +312,7 @@ test("only the admin token can move a feedback row into review", async () => {
   const noToken = await postReview({ id, status: "held", note: "official page says ended" }, unconfigured);
   assert.equal(noToken.status, 503);
 
-  const configured = { DB: db, ADMIN_TOKEN: "test-admin-token" } as unknown as Env;
+  const configured = { DB: db, ADMIN_TOKEN: "test-admin-token", FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
   const wrongToken = await postReview({ id, status: "held" }, configured, "wrong-token");
   assert.equal(wrongToken.status, 401);
 
@@ -324,10 +326,25 @@ test("only the admin token can move a feedback row into review", async () => {
   assert.equal(missing.status, 404);
 });
 
+test("feedback refuses writes when FEEDBACK_PEPPER is not configured", async () => {
+  const db = new FakeDb(deals);
+  const noPepperEnv = { DB: db } as unknown as Env;
+  const response = await postFeedback(feedbackBody(), noPepperEnv);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "feedback_unavailable" });
+  assert.equal(db.feedback.length, 0);
+
+  // The detail page only aggregates stored rows; it must stay readable without
+  // the secret and must never silently hash with a fallback salt.
+  const detail = await worker.fetch!(new Request("https://dealhunter.example/deal/ai-deal-1"), noPepperEnv);
+  assert.equal(detail.status, 200);
+  assert.match(await detail.text(), /领取状态反馈/);
+});
+
 test("a burst from one browser is rate limited before another row is written", async () => {
   const db = new FakeDb(deals);
-  const localEnv = { DB: db } as unknown as Env;
-  const { browserHash } = await feedbackHashes({ browserId: FEEDBACK_BROWSER, networkKey: "unknown", now: new Date() });
+  const localEnv = { DB: db, FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
+  const { browserHash } = await feedbackHashes({ browserId: FEEDBACK_BROWSER, networkKey: "unknown", now: new Date(), pepper: TEST_PEPPER });
   for (let index = 0; index < 3; index += 1) {
     db.feedback.push({
       id: index + 1, dealId: `other-deal-${index}`, termsVersion: "abc123", vote: "works",
@@ -338,6 +355,28 @@ test("a burst from one browser is rate limited before another row is written", a
   db.feedbackSeq = 3;
   const response = await postFeedback(feedbackBody(), localEnv);
   assert.equal(response.status, 429);
-  assert.equal(((await response.json()) as { error: string }).error, "rate_limited");
+  const data = (await response.json()) as { error: string; scope?: string };
+  assert.equal(data.error, "rate_limited");
+  assert.equal(data.scope, "browser");
   assert.equal(db.feedback.length, 3);
+});
+
+test("the network-layer limit stops a visitor from rotating the browser id", async () => {
+  const db = new FakeDb(deals);
+  const localEnv = { DB: db, FEEDBACK_PEPPER: TEST_PEPPER } as unknown as Env;
+  const { networkHash } = await feedbackHashes({ browserId: FEEDBACK_BROWSER, networkKey: "unknown", now: new Date(), pepper: TEST_PEPPER });
+  for (let index = 0; index < 10; index += 1) {
+    db.feedback.push({
+      id: index + 1, dealId: `other-deal-${index}`, termsVersion: "abc123", vote: "works",
+      browserHash: `seed-browser-${String(index).padStart(4, "0")}`, networkHash, createdAt: new Date().toISOString(),
+      reviewStatus: "pending", reviewNote: "", reviewedAt: null,
+    });
+  }
+  db.feedbackSeq = 10;
+  const response = await postFeedback(feedbackBody(), localEnv);
+  assert.equal(response.status, 429);
+  const data = (await response.json()) as { error: string; scope?: string };
+  assert.equal(data.error, "rate_limited");
+  assert.equal(data.scope, "network");
+  assert.equal(db.feedback.length, 10);
 });

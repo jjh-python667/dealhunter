@@ -5,6 +5,7 @@ import {
   checksForRun,
   collectionToken,
   feedbackCountForBrowser,
+  feedbackCountForNetwork,
   feedbackSummaryForDeal,
   getDeal,
   lastSuccessfulSourceChecks,
@@ -20,6 +21,10 @@ import {
   EMPTY_FEEDBACK,
   FEEDBACK_DAILY_MAX,
   FEEDBACK_DAILY_MS,
+  FEEDBACK_NETWORK_DAILY_MAX,
+  FEEDBACK_NETWORK_DAILY_MS,
+  FEEDBACK_NETWORK_WINDOW_MAX,
+  FEEDBACK_NETWORK_WINDOW_MS,
   FEEDBACK_RATE_WINDOW_MAX,
   FEEDBACK_RATE_WINDOW_MS,
   dealTermsVersion,
@@ -90,13 +95,26 @@ function clientNetworkKey(request: Request): string {
   return ip.slice(0, 80);
 }
 
+/** Production secret; the fallback only exists so local dev/tests keep working. */
+function feedbackPepper(env: Env): string | undefined {
+  const value = (env as unknown as Record<string, unknown>).FEEDBACK_PEPPER;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 /**
  * Public, anonymous, idempotent vote: "still works / expired / not sure".
  * The page always tells the visitor which version they are voting on, and the
  * server recomputes that version before accepting the vote, so a stale tab can
  * never mix feedback across changed terms.
  */
-async function submitFeedback(request: Request, db: QueryDb): Promise<Response> {
+async function submitFeedback(request: Request, db: QueryDb, pepper: string | undefined): Promise<Response> {
+  // No public fallback: without the server-side secret, refuse rather than hash
+  // predictable identifiers. The detail page itself stays readable; only the
+  // write path is disabled.
+  if (!pepper) {
+    console.error(JSON.stringify({ message: "feedback unavailable: FEEDBACK_PEPPER is not configured" }));
+    return json({ error: "feedback_unavailable" }, 503);
+  }
   const payload = await readJsonObject(request);
   if (!payload) return json({ error: "invalid_payload" }, 400);
   const dealId = typeof payload.dealId === "string" ? payload.dealId.trim() : "";
@@ -120,14 +138,27 @@ async function submitFeedback(request: Request, db: QueryDb): Promise<Response> 
         .catch(() => EMPTY_FEEDBACK);
       return json({ error: "stale_version", summary: publicFeedbackSummary(summary) }, 409);
     }
-    const { browserHash, networkHash } = await feedbackHashes({ browserId, networkKey: clientNetworkKey(request), now });
+    const { browserHash, networkHash } = await feedbackHashes({
+      browserId,
+      networkKey: clientNetworkKey(request),
+      now,
+      pepper,
+    });
     const windowStart = new Date(now.getTime() - FEEDBACK_RATE_WINDOW_MS).toISOString();
     if (await feedbackCountForBrowser(db, browserHash, windowStart) >= FEEDBACK_RATE_WINDOW_MAX) {
-      return json({ error: "rate_limited", retryAfterMs: FEEDBACK_RATE_WINDOW_MS }, 429);
+      return json({ error: "rate_limited", scope: "browser", retryAfterMs: FEEDBACK_RATE_WINDOW_MS }, 429);
     }
     const dayStart = new Date(now.getTime() - FEEDBACK_DAILY_MS).toISOString();
     if (await feedbackCountForBrowser(db, browserHash, dayStart) >= FEEDBACK_DAILY_MAX) {
-      return json({ error: "rate_limited", retryAfterMs: FEEDBACK_DAILY_MS }, 429);
+      return json({ error: "rate_limited", scope: "browser", retryAfterMs: FEEDBACK_DAILY_MS }, 429);
+    }
+    const networkWindowStart = new Date(now.getTime() - FEEDBACK_NETWORK_WINDOW_MS).toISOString();
+    if (await feedbackCountForNetwork(db, networkHash, networkWindowStart) >= FEEDBACK_NETWORK_WINDOW_MAX) {
+      return json({ error: "rate_limited", scope: "network", retryAfterMs: FEEDBACK_NETWORK_WINDOW_MS }, 429);
+    }
+    const networkDayStart = new Date(now.getTime() - FEEDBACK_NETWORK_DAILY_MS).toISOString();
+    if (await feedbackCountForNetwork(db, networkHash, networkDayStart) >= FEEDBACK_NETWORK_DAILY_MAX) {
+      return json({ error: "rate_limited", scope: "network", retryAfterMs: FEEDBACK_NETWORK_DAILY_MS }, 429);
     }
     const inserted = await recordFeedback(db, {
       dealId: deal.id,
@@ -294,7 +325,7 @@ export default {
     }
     if (url.pathname === "/api/feedback") {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-      return submitFeedback(request, db);
+      return submitFeedback(request, db, feedbackPepper(env));
     }
     if (url.pathname === "/api/admin/feedback/review") {
       return reviewFeedbackRequest(request, db, env.ADMIN_TOKEN);
