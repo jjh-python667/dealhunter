@@ -8,6 +8,7 @@ export const accountCopy = {
   privacy: {zh: "我们保存 GitHub 用户编号、用户名和会话哈希，仅用它们处理登录。", en: "We store your GitHub user ID, username and a session hash to sign you in."},
   later: {zh: "先不登录", en: "Not now"},
   error: {zh: "登录没有完成，请重试。", en: "Sign-in didn't finish. Please try again."},
+  signedIn: {zh: "已用 GitHub 登录。", en: "Signed in with GitHub."},
   signOutError: {zh: "退出没有完成，请重试。", en: "Sign-out didn't finish. Please try again."},
   rateLimited: {zh: "尝试太频繁，请 10 分钟后再试。", en: "Too many attempts. Try again in 10 minutes."},
   benefit1: {zh: "在多台设备同步收藏和提醒偏好", en: "Sync saved deals and alert settings across devices"},

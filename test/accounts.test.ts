@@ -14,6 +14,7 @@ import { TRANSLATE_CRON } from "../src/translate";
 const origin = "https://dealhunter.example";
 const start = "/api/auth/github/start";
 const now = Date.parse("2026-11-15T08:00:00Z");
+type GitHubFetchMode = "ok" | "token-status" | "oauth-error" | "oauth-status" | "unsafe-error" | "user-status" | "user-invalid" | "redirect" | "throw";
 const schema = readFileSync("migrations/0007_accounts.sql", "utf8");
 const hash = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -52,23 +53,45 @@ function setup(t: TestContext, alerts = false) {
   const env = {DB: {prepare, batch}, ACCOUNTS_ENABLED: "1", ALERTS_SERVER_ENABLED: alerts ? "1" : "0",
     GITHUB_CLIENT_ID: "mock-client", GITHUB_CLIENT_SECRET: "mock-secret", SESSION_PEPPER: "mock-pepper"} as unknown as Env;
   const calls: string[] = [];
+  const redirects: string[] = [];
   let login = "octocat";
-  t.mock.method(globalThis, "fetch", async (input: string, init: RequestInit) => {
-    calls.push(String(input));
-    if (input === "https://github.com/login/oauth/access_token") {
-      const body = init.body as URLSearchParams;
+  let mode: GitHubFetchMode = "ok";
+  t.mock.method(globalThis, "fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    const redirect = init?.redirect ?? (input instanceof Request ? input.redirect : undefined);
+    if (redirect === "error") throw new TypeError('redirect mode "error" is not implemented');
+    const url = input instanceof Request ? input.url : String(input);
+    calls.push(url);
+    redirects.push(redirect ?? "");
+    if (mode === "throw") {
+      const body = init?.body instanceof URLSearchParams ? init.body : null;
+      throw new TypeError(`network ${body?.get("code_verifier") ?? ""} code=${body?.get("code") ?? ""} secret=mock-secret token=mock-transient-token client=mock-client`);
+    }
+    if (url === "https://github.com/login/oauth/access_token") {
+      const body = init?.body as URLSearchParams;
       assert.equal(body.get("code"), "test-code");
       assert.match(body.get("code_verifier") ?? "", /^[A-Za-z0-9_-]{43}$/);
       assert.equal(body.get("redirect_uri"), origin + "/api/auth/github/callback");
+      if (mode === "token-status") return new Response("client_secret=mock-secret code=test-code", {status: 401});
+      if (mode === "oauth-error") return Response.json({
+        error: "incorrect_client_credentials",
+        error_description: "client_secret mock-secret code test-code",
+        error_uri: "https://evil.example/docs?code=test-code",
+      });
+      if (mode === "oauth-status") return Response.json({error: "bad_verification_code", error_description: "code test-code"}, {status: 400});
+      if (mode === "unsafe-error") return Response.json({error: "mock-secret-test-code", access_token: "mock-transient-token"});
+      if (mode === "redirect") return new Response("mock-secret", {status: 302, headers: {location: "https://evil.example/steal?code=test-code"}});
       return Response.json({access_token: "mock-transient-token"});
     }
-    assert.equal(input, "https://api.github.com/user");
-    assert.equal(new Headers(init.headers).get("authorization"), "Bearer mock-transient-token");
+    assert.equal(url, "https://api.github.com/user");
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer mock-transient-token");
+    if (mode === "user-status") return new Response("token mock-transient-token", {status: 403});
+    if (mode === "user-invalid") return Response.json({id: "123", login: "not a login"});
     return Response.json({id: 123, login, email: "ignored@example.test"});
   });
   const get = (path: string, init?: RequestInit) =>
     worker.fetch(new Request(origin + path, init) as Parameters<typeof worker.fetch>[0], env);
-  return {sqlite, env, calls, get, failScan: () => { failScan = true; }, rename: (value: string) => { login = value; }};
+  return {sqlite, env, calls, redirects, get, failScan: () => { failScan = true; },
+    rename: (value: string) => { login = value; }, githubMode: (value: GitHubFetchMode) => { mode = value; }};
 }
 
 function cookiePair(response: Response, name: string): string {
@@ -160,6 +183,61 @@ test("callback consumes state once, rejects expired or unbound state and stores 
   assert.equal(calls.length, 4);
 });
 
+test("GitHub callback stays on manual redirect, lands on login=ok, and sets a host session cookie", async t => {
+  const {get, calls, redirects} = setup(t);
+  const errors = t.mock.method(console, "error", () => {});
+  await assert.rejects(() => fetch("https://github.com/login/oauth/access_token", {redirect: "error"}), TypeError);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(redirects, []);
+  const flow = await initiate(get);
+  const success = await callback(get, flow.state, flow.cookie);
+  const location = success.headers.get("location") ?? "";
+  assert.match(location, /^\/account\?/);
+  assert.equal(new URL(location, origin).searchParams.get("login"), "ok");
+  const session = success.headers.getSetCookie().find(value => value.startsWith("__Host-dh_session="));
+  assert.ok(session);
+  assert.match(session, /^__Host-dh_session=[A-Za-z0-9_-]+; Path=\/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax$/);
+  assert.deepEqual(calls, ["https://github.com/login/oauth/access_token", "https://api.github.com/user"]);
+  assert.deepEqual(redirects, ["manual", "manual"]);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("GitHub login failures log a reason code and never a code, token, or secret", async t => {
+  const {get, sqlite, calls, redirects, githubMode} = setup(t);
+  const logged: unknown[][] = [];
+  t.mock.method(console, "error", (...args: unknown[]) => { logged.push(args); });
+  const scenarios = [
+    ["token-status", "token_http_401", 1],
+    ["oauth-error", "incorrect_client_credentials", 1],
+    ["oauth-status", "bad_verification_code", 1],
+    ["unsafe-error", "token_rejected", 1],
+    ["redirect", "token_http_302", 1],
+    ["user-status", "user_http_403", 2],
+    ["user-invalid", "user_invalid", 2],
+    ["throw", "TypeError", 1],
+  ] as const;
+  for (const [mode, reason, fetches] of scenarios) {
+    githubMode(mode);
+    calls.length = 0;
+    redirects.length = 0;
+    logged.length = 0;
+    const flow = await initiate(get);
+    const row = sqlite.prepare("SELECT code_verifier FROM oauth_states WHERE state_hash=?").get(hash(flow.state)) as {code_verifier: string} | undefined;
+    assert.ok(row, mode);
+    const response = await callback(get, flow.state, flow.cookie);
+    assert.equal(response.headers.get("location"), "/account?login=error", mode);
+    assert.equal(response.headers.getSetCookie().some(value => value.startsWith("__Host-dh_session=")), false, mode);
+    assert.equal(calls.length, fetches, mode);
+    assert.ok(calls.every(url => url === "https://github.com/login/oauth/access_token" || url === "https://api.github.com/user"), mode);
+    assert.deepEqual(redirects, Array.from({length: fetches}, () => "manual"), mode);
+    const text = JSON.stringify(logged);
+    for (const secret of ["test-code", "mock-secret", "mock-transient-token", "mock-pepper", "mock-client", row.code_verifier, flow.state, "evil.example", "not a login"]) {
+      assert.equal(text.includes(secret), false, `${mode} leaked a forbidden value`);
+    }
+    assert.deepEqual(logged, [["Deal Hunter GitHub login failed", reason]], mode);
+  }
+});
+
 test("session rotation allows the old cookie for 60 seconds and logout enforces CSRF", async t => {
   const {get} = setup(t);
   const flow = await initiate(get);
@@ -214,6 +292,26 @@ test("account fallback has bilingual GitHub links and its HTML is independent of
     assert.match(html, /label\.textContent = name/);
     assert.equal(await (await get("/account?lang=" + lang, {headers:{cookie:"__Host-dh_session=arbitrary"}})).text(), html);
   }
+});
+
+test("account page shows prominent bilingual login success and failure banners", async t => {
+  const {get} = setup(t);
+  const zhError = await (await get("/account?lang=zh&login=error")).text();
+  const enError = await (await get("/account?lang=en&login=error")).text();
+  const zhOk = await (await get("/account?lang=zh&login=ok")).text();
+  const enOk = await (await get("/account?lang=en&login=ok")).text();
+  const plain = await (await get("/account?lang=zh")).text();
+  const banner = (kind: "error" | "ok", text: string) =>
+    `<p class="account-banner account-banner-${kind}" role="${kind === "error" ? "alert" : "status"}">${text}</p>`;
+  assert.ok(zhError.includes(banner("error", "登录没有完成，请重试。")));
+  assert.ok(enError.includes(banner("error", "Sign-in didn&#39;t finish. Please try again.")));
+  assert.ok(zhOk.includes(banner("ok", "已用 GitHub 登录。")));
+  assert.ok(enOk.includes(banner("ok", "Signed in with GitHub.")));
+  assert.equal(zhError.includes('class="account-banner account-banner-ok"'), false);
+  assert.equal(enOk.includes('class="account-banner account-banner-error"'), false);
+  assert.equal(plain.includes('class="account-banner'), false);
+  assert.ok(zhError.indexOf(banner("error", "登录没有完成，请重试。")) < zhError.indexOf('id="account-title"'));
+  assert.ok(enOk.indexOf(banner("ok", "Signed in with GitHub.")) < enOk.indexOf('id="account-title"'));
 });
 
 test("migration down removes only account tables and schema has functional foreign keys", t => {
@@ -303,7 +401,7 @@ test("export omits credentials, all-device logout revokes both sessions and dele
 
 test("all account design copy keys have Chinese and English text", () => {
   const keys = ["signIn","account","signOut","title","optional","benefit1","benefit2","github","passkey","privacy",
-    "later","error","rateLimited","mergeTitle","mergeBody","mergePrefs","mergeConfirm","mergeSkip","mergeOverflow",
+    "later","error","signedIn","rateLimited","mergeTitle","mergeBody","mergePrefs","mergeConfirm","mergeSkip","mergeOverflow",
     "syncHint","export","delete","deleteConfirm","deleted","signedOutKeep","channelSite","channelEmail","daily"] as const;
   for (const key of keys) {
     assert.match(accountCopy[key].zh, /[\u3400-\u9fff]/, key);

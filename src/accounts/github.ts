@@ -6,7 +6,31 @@ import { accountCopy } from "./copy";
 export type GitHubConfig = {clientId: string; clientSecret: string; pepper: string};
 const CALLBACK = "/api/auth/github/callback";
 const TIMEOUT = 10_000;
+// Workers rejects redirect "error" with TypeError. "manual" still leaves 3xx as !ok.
+const REDIRECT = "manual" as const;
+const OWN_REASON = /^(?:token_http_[0-9]{1,3}|user_http_[0-9]{1,3}|token_missing|token_rejected|user_invalid)$/;
+const GITHUB_ERROR = /^[a-z][a-z0-9]*(_[a-z0-9]+){1,6}$/;
+const EXCEPTION_NAME = /^[A-Z][A-Za-z0-9]{1,40}$/;
 const clearOAuth = () => cookie(OAUTH, "", 0);
+
+function logGitHubLoginFailure(reason: string): void {
+  const safe = reason.length <= 64 && (OWN_REASON.test(reason) || GITHUB_ERROR.test(reason) || EXCEPTION_NAME.test(reason));
+  console.error("Deal Hunter GitHub login failed", safe ? reason : "unrecognized");
+}
+
+export function logGitHubLoginException(error: unknown): void {
+  const name = error instanceof Error ? error.name : "";
+  logGitHubLoginFailure(EXCEPTION_NAME.test(name) ? name : "Error");
+}
+
+function httpReason(stage: "token" | "user", status: number): string {
+  return Number.isInteger(status) && status >= 0 && status <= 999 ? `${stage}_http_${status}` : stage === "token" ? "token_rejected" : "user_invalid";
+}
+
+function classifyOAuthError(error: unknown): string | null {
+  if (typeof error !== "string" || !error) return null;
+  return error.length <= 64 && GITHUB_ERROR.test(error) ? error : "token_rejected";
+}
 
 function returnPath(raw: string | null, origin: string): string {
   if (!raw || raw.length > 2048 || !raw.startsWith("/") || raw.startsWith("//") || /[\\\u0000-\u0020\u007f]/.test(raw)) return "/";
@@ -46,25 +70,59 @@ export function failedGitHub(request: Request): Response {
   return redirect("/account?login=error", ...(readCookie(request, OAUTH) ? [clearOAuth()] : []));
 }
 
+async function tokenFailure(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.json();
+    if (payload && typeof payload === "object" && "error" in payload) {
+      return classifyOAuthError((payload as {error: unknown}).error) ?? httpReason("token", response.status);
+    }
+  } catch { /* A non-JSON body still has a safe status code. */ }
+  return httpReason("token", response.status);
+}
+
 async function githubIdentity(config: GitHubConfig, code: string, verifier: string, origin: string) {
-  const token = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(TIMEOUT),
-    headers: {accept: "application/json"},
-    body: new URLSearchParams({client_id: config.clientId, client_secret: config.clientSecret,
-      code, code_verifier: verifier, redirect_uri: origin + CALLBACK}),
-  });
-  if (!token.ok) return null;
-  const {access_token: accessToken} = await token.json<{access_token?: unknown}>();
-  if (typeof accessToken !== "string" || !accessToken) return null;
-  const response = await fetch("https://api.github.com/user", {
-    redirect: "error", signal: AbortSignal.timeout(TIMEOUT),
-    headers: {authorization: "Bearer " + accessToken, accept: "application/vnd.github+json", "user-agent": "Deal-Hunter"},
-  });
-  if (!response.ok) return null;
-  const {id, login} = await response.json<{id?: unknown; login?: unknown}>();
-  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
-      typeof login !== "string" || !/^[A-Za-z0-9-]{1,39}$/.test(login)) return null;
-  return {subject: String(id), login};
+  try {
+    const token = await fetch("https://github.com/login/oauth/access_token", {
+      method: "POST", redirect: REDIRECT, signal: AbortSignal.timeout(TIMEOUT),
+      headers: {accept: "application/json"},
+      body: new URLSearchParams({client_id: config.clientId, client_secret: config.clientSecret,
+        code, code_verifier: verifier, redirect_uri: origin + CALLBACK}),
+    });
+    if (!token.ok) {
+      logGitHubLoginFailure(await tokenFailure(token));
+      return null;
+    }
+    const payload: unknown = await token.json();
+    const record = payload && typeof payload === "object" ? payload as {access_token?: unknown; error?: unknown} : null;
+    const oauthError = classifyOAuthError(record?.error);
+    if (oauthError) {
+      logGitHubLoginFailure(oauthError);
+      return null;
+    }
+    const accessToken = record?.access_token;
+    if (typeof accessToken !== "string" || !accessToken) {
+      logGitHubLoginFailure("token_missing");
+      return null;
+    }
+    const response = await fetch("https://api.github.com/user", {
+      redirect: REDIRECT, signal: AbortSignal.timeout(TIMEOUT),
+      headers: {authorization: "Bearer " + accessToken, accept: "application/vnd.github+json", "user-agent": "Deal-Hunter"},
+    });
+    if (!response.ok) {
+      logGitHubLoginFailure(httpReason("user", response.status));
+      return null;
+    }
+    const {id, login} = await response.json<{id?: unknown; login?: unknown}>();
+    if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 ||
+        typeof login !== "string" || !/^[A-Za-z0-9-]{1,39}$/.test(login)) {
+      logGitHubLoginFailure("user_invalid");
+      return null;
+    }
+    return {subject: String(id), login};
+  } catch (error) {
+    logGitHubLoginException(error);
+    return null;
+  }
 }
 
 async function upsertIdentity(db: D1Database, subject: string, login: string, now: number): Promise<string> {
