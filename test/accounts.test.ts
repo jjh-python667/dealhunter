@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { runInNewContext } from "node:vm";
 import test, { type TestContext } from "node:test";
 import worker from "../src/index";
+import { accountCopy } from "../src/accounts/copy";
+import { ACCOUNT_SCRIPT } from "../src/ui/account-client";
 
 const origin = "https://dealhunter.example";
 const start = "/api/auth/github/start";
@@ -19,6 +22,7 @@ function setup(t: TestContext) {
   const prepare = (sql: string, args: SQLInputValue[] = []) => ({
     bind: (...values: SQLInputValue[]) => prepare(sql, values),
     first: async () => sqlite.prepare(sql).get(...args) ?? null,
+    all: async () => ({results: sqlite.prepare(sql).all(...args)}),
     run: async () => sqlite.prepare(sql).run(...args),
     execute: () => ({results: sqlite.prepare(sql).all(...args)}),
   });
@@ -136,7 +140,7 @@ test("callback consumes state once, rejects expired or unbound state and stores 
   assert.deepEqual(await (await get("/api/me")).json(), {user:null});
   const me = await get("/api/me", {headers:{cookie: session}});
   assert.match(me.headers.get("cache-control")!, /no-store, private/);
-  assert.deepEqual(await me.json(), {user:{login:"octocat-renamed"}});
+  assert.deepEqual((await me.json<{user:unknown}>()).user, {login:"octocat-renamed"});
   t.mock.timers.tick(30 * 86_400_000 + 1);
   const ended = await get("/api/me", {headers:{cookie: session}});
   assert.deepEqual(await ended.json(), {user:null});
@@ -152,7 +156,7 @@ test("session rotation allows the old cookie for 60 seconds and logout enforces 
   const rotated = cookiePair(await get("/api/me", {headers:{cookie:first}}), "__Host-dh_session");
   assert.notEqual(first, rotated);
   const old = await get("/api/me", {headers:{cookie:first}});
-  assert.deepEqual(await old.json(), {user:{login:"octocat"}});
+  assert.deepEqual((await old.json<{user:unknown}>()).user, {login:"octocat"});
   assert.equal(old.headers.has("set-cookie"), false);
   t.mock.timers.tick(60_001);
   assert.deepEqual(await (await get("/api/me", {headers:{cookie:first}})).json(), {user:null});
@@ -207,4 +211,151 @@ test("migration down removes only account tables and schema has functional forei
   sqlite.exec(readFileSync("migrations-down/0007_accounts.down.sql", "utf8"));
   assert.equal(sqlite.prepare("SELECT id FROM existing_deals").get()?.id, "preserved");
   assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()?.n, 1);
+});
+
+async function loginFor(t: TestContext) {
+  const result = setup(t);
+  const signIn = async () => {
+    const flow = await initiate(result.get);
+    return cookiePair(await callback(result.get, flow.state, flow.cookie), "__Host-dh_session");
+  };
+  const cookie = await signIn();
+  const read = (path: string, session = cookie) => result.get(path, {headers: {cookie:session}});
+  const write = (path: string, body: unknown, session = cookie) => result.get(path, {
+    method:"POST", headers:{origin, cookie:session, "x-dh-csrf":"1", "content-type":"application/json"}, body: JSON.stringify(body),
+  });
+  return {...result, read, write, signIn};
+}
+
+test("merge skips duplicates and malformed IDs, honors tombstones and keeps prefs unless opted in", async t => {
+  const {read, write, sqlite, signIn} = await loginFor(t);
+  assert.equal((await write("/api/me/saved", {add:["a","b","gone"]})).status, 200);
+  const secondSession = await signIn();
+  const removed = await write("/api/me/saved", {remove:["gone"]});
+  assert.equal(removed.status, 200);
+  assert.equal(sqlite.prepare("SELECT deal_id FROM saved_tombstones").get()?.deal_id, "gone");
+  assert.deepEqual(await (await read("/api/me/saved", secondSession)).json(), {ids:["a","b"]});
+  const prefs = {region:"us", noCard:true};
+  assert.equal((await write("/api/me/prefs", prefs)).status, 200);
+  const merge = await write("/api/me/saved/merge", {ids:["b","c","bad id","c","gone"]});
+  assert.deepEqual(await merge.json(), {ids:["a","b","c"], added:1, skipped:4, overflow:0});
+  assert.equal((await (await read("/api/me/prefs")).json<{prefs:{region:string}}>()).prefs.region, "us");
+  await write("/api/me/saved/merge", {ids:["c"], prefs:{region:"gb"}});
+  assert.equal((await (await read("/api/me/prefs")).json<{prefs:{region:string}}>()).prefs.region, "gb");
+  assert.equal((await write("/api/me/prefs", {channels:{email:true}})).status, 400);
+});
+
+test("merge caps saves at 1000, favors existing IDs, then preserves input priority", async t => {
+  const {write} = await loginFor(t);
+  const existing = Array.from({length:999}, (_, index) => "old" + index);
+  assert.equal((await write("/api/me/saved", {add:existing})).status, 200);
+  const response = await write("/api/me/saved/merge", {ids:["z-first", "a-second"]});
+  const result = await response.json<{ids:string[]; added:number; overflow:number}>();
+  assert.equal(result.ids.length, 1000);
+  assert.ok(existing.every(id => result.ids.includes(id)));
+  assert.ok(result.ids.includes("z-first"));
+  assert.ok(!result.ids.includes("a-second"));
+  assert.equal(result.added, 1);
+  assert.equal(result.overflow, 1);
+});
+
+test("export omits credentials, all-device logout revokes both sessions and delete purges account data", async t => {
+  const {write, read, signIn, sqlite} = await loginFor(t);
+  const second = await signIn();
+  const user = sqlite.prepare("SELECT id FROM users").get()!.id as string;
+  await write("/api/me/saved", {add:["kept"], remove:["removed"]});
+  await write("/api/me/prefs", {frequency:"daily"});
+  sqlite.prepare("INSERT INTO alert_state VALUES (?, 'kept', 'revision')").run(user);
+  sqlite.prepare("INSERT INTO alert_inbox(user_id,dedupe_key,kind,deal_id,created_at,day) VALUES (?,'test','ending','kept','test','2026-11-15')").run(user);
+  const exported = await read("/api/me/export");
+  assert.match(exported.headers.get("content-disposition")!, /dealhunter-export\.json/);
+  const raw = await exported.text();
+  assert.doesNotMatch(raw, /token|hash|secret|verifier|mergeKey|mock-transient/i);
+  const data = JSON.parse(raw);
+  for (const key of ["user","identities","saved","tombstones","prefs","inbox","sessions"]) assert.ok(data[key], key);
+  assert.equal(data.sessions.length, 2);
+  assert.equal((await write("/api/auth/logout", {all:true})).status, 200);
+  assert.deepEqual(await (await read("/api/me", second)).json(), {user:null});
+  assert.deepEqual(await (await read("/api/me")).json(), {user:null});
+  const fresh = await signIn();
+  assert.equal((await write("/api/me/delete", {confirm:"wrong"}, fresh)).status, 400);
+  const deleted = await write("/api/me/delete", {confirm:"octocat"}, fresh);
+  assert.equal(deleted.status, 200);
+  assert.match(deleted.headers.get("set-cookie")!, /Max-Age=0/);
+  for (const table of ["users","identities","sessions","user_saved","saved_tombstones","alert_prefs","alert_state","alert_inbox","oauth_states","auth_rate"]) {
+    const filter = table === "auth_rate" ? " WHERE bucket LIKE 'write:%' OR bucket LIKE 'danger:%'" : "";
+    assert.equal(sqlite.prepare(`SELECT COUNT(*) n FROM ${table}${filter}`).get()?.n, 0, table);
+  }
+  assert.deepEqual(await (await read("/api/me", fresh)).json(), {user:null});
+});
+
+test("all account design copy keys have Chinese and English text", () => {
+  const keys = ["signIn","account","signOut","title","optional","benefit1","benefit2","github","passkey","privacy",
+    "later","error","rateLimited","mergeTitle","mergeBody","mergePrefs","mergeConfirm","mergeSkip","mergeOverflow",
+    "syncHint","export","delete","deleteConfirm","deleted","signedOutKeep","channelSite","channelEmail","daily"] as const;
+  for (const key of keys) {
+    assert.match(accountCopy[key].zh, /[\u3400-\u9fff]/, key);
+    assert.match(accountCopy[key].en, /[a-z]/i, key);
+  }
+});
+
+test("new account writes reject missing CSRF and unauthenticated requests", async t => {
+  const {get, write} = await loginFor(t);
+  for (const path of ["/api/me/saved", "/api/me/saved/merge", "/api/me/prefs", "/api/me/delete"]) {
+    assert.equal((await get(path, {method:"POST"})).status, 403);
+    assert.equal((await write(path, {}, "")).status, 401);
+  }
+});
+
+test("client renders an injected username literally and skipping import preserves local data without a write request", {timeout:1000}, async () => {
+  const hostile = "<script>globalThis.executed = true</script>";
+  let menuText = "";
+  let finish!: () => void;
+  const initialized = new Promise<void>(resolve => { finish = resolve; });
+  const node = () => ({
+    textContent: "", addEventListener() {}, append(..._children: unknown[]) {},
+    replaceWith() {},
+    set innerHTML(_value: string) { assert.fail("username must not enter HTML"); },
+  });
+  let skip!: () => void;
+  const selectors: Record<string, unknown> = {
+    "[data-account-slot]": node(),
+    "#account-merge-dialog": {...node(), showModal:finish, close() {}},
+    "[data-merge-skip]": {...node(), addEventListener(_event: string, listener: () => void) { skip = listener; }},
+    "[data-merge-confirm]": node(),
+    "[data-merge-explanation]": node(),
+    "[data-merge-prefs]": node(),
+    "[data-merge-status]": node(),
+  };
+  const storage = new Map([["dh-saved", '["local"]']]);
+  const methods: string[] = [];
+  const window = {};
+  const context = {
+    window, URLSearchParams, location:{search:""}, document:{
+      querySelector(selector: string) { return selectors[selector] ?? null; },
+      addEventListener() {},
+      createElement(tag: string) {
+        assert.notEqual(tag, "script");
+        if (tag === "summary") {
+          return {set textContent(value: string) { menuText = value; }};
+        }
+        return node();
+      },
+    },
+    dhAccountOptions:{account:"/account", copy:{mergeBody:"{n} local, {m} missing", mergeConfirm:"Add {m}"}},
+    fetch: async (path: string, init: RequestInit) => {
+      methods.push(init.method ?? "GET");
+      return Response.json(path === "/api/me" ? {user:{login:hostile}, prefs:{}, mergeKey:"test"} : {ids:["server"]});
+    },
+    localStorage:{getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value)},
+    StorageEvent: class {}, dispatchEvent() {}, addEventListener() {},
+  };
+  runInNewContext(ACCOUNT_SCRIPT, context);
+  await initialized;
+  skip();
+  assert.equal(menuText, "@" + hostile);
+  assert.equal(Object.hasOwn(context, "executed"), false);
+  assert.equal(storage.get("dh-saved"), '["local"]');
+  assert.equal(storage.get("dh-merged:test"), "skipped");
+  assert.deepEqual(methods, ["GET", "GET"]);
 });

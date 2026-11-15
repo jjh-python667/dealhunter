@@ -370,3 +370,7 @@ npm test
 PR-A 的登录流程使用 GitHub OAuth App、无显式 scope、S256 PKCE 及一次性 state。需要 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET` 和高熵 `SESSION_PEPPER`，并在正式启用前为每个环境核对回调地址 `<origin>/api/auth/github/callback`。会话 Cookie 要求 HTTPS，退出接口要求同源 Origin、JSON 和 `X-DH-CSRF: 1`。测试使用本地 SQLite 和模拟 GitHub 响应。
 
 正向迁移 `migrations/0007_accounts.sql` 只新增账号表。手动回滚脚本位于 `migrations-down/0007_accounts.down.sql`，放在自动迁移目录之外。关闭 `ACCOUNTS_ENABLED` 即可停用功能。手动执行 down 会删除账号表及其中的数据，适用于明确需要移除账号数据的回滚。
+
+PR-B 复用 0007 的表，支持双向收藏同步、一次性导入、提醒偏好、数据导出、删号和退出所有设备。首次登录时可跳过导入。跳过或超量时设备收藏留在原处，之后可以从「我的账户」再导入。完成导入或没有待导入收藏时，设备保存账号收藏的镜像。取消收藏会留下 tombstone，阻止旧设备导入时恢复同一条收藏。用户主动重新收藏仍然有效。
+
+导出提供账户资料、收藏、删除记录、偏好、提醒记录和会话时间。删号需要输入当前 GitHub 用户名，直接清除账号相关行，本机收藏和匿名反馈保留。账号提醒收件箱及 tombstone 定期清理属于 PR-C。
