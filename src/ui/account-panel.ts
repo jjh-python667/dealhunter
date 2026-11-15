@@ -38,7 +38,10 @@ export function accountDialogs(lang: SiteLang, showPanel: boolean): string {
     <label><input type="checkbox" disabled> ${t("channelPush")}</label>
     <button class="account-button" type="submit">${t("savePrefs")}</button>
   </form></details>
-  <details><summary>${t("inbox")}</summary><p>${t("inboxPending")}</p></details>
+  <details open><summary>${t("inbox")} <span data-inbox-count></span></summary>
+    <p data-inbox-mode></p><p data-inbox-empty>${t("inboxEmpty")}</p><ul data-inbox-list></ul>
+    <div class="account-actions">${button("inboxRead", "inbox-read", true)}${button("inboxMore", "inbox-more", true)}</div>
+  </details>
   <details><summary>${t("dataPrivacy")}</summary><p>${t("storedData")}</p>
     <div class="account-actions"><a href="/api/me/export" download>${t("export")}</a>${button("delete", "account-delete")}</div>
   </details>

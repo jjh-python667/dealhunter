@@ -7,6 +7,9 @@ import test, { type TestContext } from "node:test";
 import worker from "../src/index";
 import { accountCopy } from "../src/accounts/copy";
 import { ACCOUNT_SCRIPT } from "../src/ui/account-client";
+import { ALERT_USER_BATCH, cleanupAccountAlerts, generateAccountAlerts } from "../src/accounts/alerts";
+import { RADAR_CRON } from "../src/sources";
+import { TRANSLATE_CRON } from "../src/translate";
 
 const origin = "https://dealhunter.example";
 const start = "/api/auth/github/start";
@@ -14,18 +17,27 @@ const now = Date.parse("2026-11-15T08:00:00Z");
 const schema = readFileSync("migrations/0007_accounts.sql", "utf8");
 const hash = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
-function setup(t: TestContext) {
+function setup(t: TestContext, alerts = false) {
   t.mock.timers.enable({apis: ["Date"], now});
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
   sqlite.exec(schema);
-  const prepare = (sql: string, args: SQLInputValue[] = []) => ({
+  if (alerts) {
+    for (const migration of ["0001_init", "0002_translation", "0008_alert_scan"]) {
+      sqlite.exec(readFileSync("migrations/" + migration + ".sql", "utf8"));
+    }
+  }
+  let failScan = false;
+  const prepare = (sql: string, args: SQLInputValue[] = []) => {
+    if (failScan && sql.includes("FROM users AS u LEFT JOIN alert_scan_progress")) throw Error("mock reminder failure");
+    return {
     bind: (...values: SQLInputValue[]) => prepare(sql, values),
     first: async () => sqlite.prepare(sql).get(...args) ?? null,
     all: async () => ({results: sqlite.prepare(sql).all(...args)}),
     run: async () => sqlite.prepare(sql).run(...args),
     execute: () => ({results: sqlite.prepare(sql).all(...args)}),
-  });
+    };
+  };
   const batch = async (statements: Array<ReturnType<typeof prepare>>) => {
     sqlite.exec("BEGIN");
     try {
@@ -37,7 +49,7 @@ function setup(t: TestContext) {
       throw error;
     }
   };
-  const env = {DB: {prepare, batch}, ACCOUNTS_ENABLED: "1",
+  const env = {DB: {prepare, batch}, ACCOUNTS_ENABLED: "1", ALERTS_SERVER_ENABLED: alerts ? "1" : "0",
     GITHUB_CLIENT_ID: "mock-client", GITHUB_CLIENT_SECRET: "mock-secret", SESSION_PEPPER: "mock-pepper"} as unknown as Env;
   const calls: string[] = [];
   let login = "octocat";
@@ -56,7 +68,7 @@ function setup(t: TestContext) {
   });
   const get = (path: string, init?: RequestInit) =>
     worker.fetch(new Request(origin + path, init) as Parameters<typeof worker.fetch>[0], env);
-  return {sqlite, calls, get, rename: (value: string) => { login = value; }};
+  return {sqlite, env, calls, get, failScan: () => { failScan = true; }, rename: (value: string) => { login = value; }};
 }
 
 function cookiePair(response: Response, name: string): string {
@@ -80,7 +92,7 @@ function callback(get: ReturnType<typeof setup>["get"], state: string, cookie: s
 test("feature-off public HTML matches the main 0cb71b4 bytes in both languages", async t => {
   t.mock.timers.enable({apis:["Date"], now});
   const db = {prepare() { return {bind() { return this; }, async first() { return null; }, async all() { return {results:[]}; }}; }};
-  const env = {DB: db, ACCOUNTS_ENABLED:"0"} as unknown as Env;
+  const env = {DB: db, ACCOUNTS_ENABLED:"0", ALERTS_SERVER_ENABLED:"1"} as unknown as Env;
   const snapshots = {
     "/": ["cbd49198570236c4f973e85cbfd6eaf0c18f29d6eced596f8875860f97ad3854", "5c6e4dc6750be451eca982b0c5ef05bc072614ff9584c02bb4fd8d6eab045d7f"],
     "/deals": ["c5e5607248db79872bdc1412cb316e3b1ed12014bbe383a4f41f3c8d64d7c22f", "d6e1ab68c440652b7722403829a33618b85e880664eaa299271a7b0fb1034738"],
@@ -95,7 +107,7 @@ test("feature-off public HTML matches the main 0cb71b4 bytes in both languages",
       assert.equal(hash(new Uint8Array(await response.arrayBuffer())), expected, path + " " + lang);
     }
   }
-  for (const path of [start, "/api/auth/github/callback", "/api/auth/logout", "/api/me", "/api/me/saved", "/account"]) {
+  for (const path of [start, "/api/auth/github/callback", "/api/auth/logout", "/api/me", "/api/me/saved", "/api/me/inbox", "/account"]) {
     assert.equal((await worker.fetch(new Request(origin + path), env)).status, 404, path);
   }
 });
@@ -213,8 +225,8 @@ test("migration down removes only account tables and schema has functional forei
   assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get()?.n, 1);
 });
 
-async function loginFor(t: TestContext) {
-  const result = setup(t);
+async function loginFor(t: TestContext, alerts = false) {
+  const result = setup(t, alerts);
   const signIn = async () => {
     const flow = await initiate(result.get);
     return cookiePair(await callback(result.get, flow.state, flow.cookie), "__Host-dh_session");
@@ -358,4 +370,135 @@ test("client renders an injected username literally and skipping import preserve
   assert.equal(storage.get("dh-saved"), '["local"]');
   assert.equal(storage.get("dh-merged:test"), "skipped");
   assert.deepEqual(methods, ["GET", "GET"]);
+});
+
+const DAY = 86_400_000;
+const iso = (offset: number) => new Date(now + offset).toISOString();
+
+function addAlertDeal(sqlite: DatabaseSync, id: string, firstSeen: string, deadline: string | null = null) {
+  sqlite.prepare(`INSERT INTO deals (id,title,category,summary,value_tier,ends_at,source_name,source_id,source_url,last_verified_at,
+    deal_type,status,rank_score,first_seen_at,updated_at) VALUES (?,?,'ai','No credit card required','money',?,'Mock','mock','https://example.test/feed',?,
+    'trial','active',0,?,?)`).run(id, "Offer " + id, deadline, iso(0), firstSeen, iso(0));
+}
+
+function addAlertUser(sqlite: DatabaseSync, id: string, prefs: Record<string, unknown> = {category:"ai"}) {
+  sqlite.prepare("INSERT INTO users VALUES (?,?,?,?)").run(id, id, iso(-DAY), iso(-DAY));
+  sqlite.prepare("INSERT INTO alert_prefs VALUES (?,?,?)").run(id, JSON.stringify(prefs), iso(-DAY));
+}
+
+test("translation cron generates each alert kind once and respects alert preferences", async t => {
+  const {sqlite, env} = setup(t, true);
+  addAlertUser(sqlite, "enabled");
+  addAlertUser(sqlite, "quiet", {category:"ai", newOffer:false, ending:false, changed:false});
+  addAlertUser(sqlite, "site-off", {category:"ai", channels:{site:false}});
+  addAlertUser(sqlite, "wrong-region", {category:"ai", region:"gb"});
+  addAlertDeal(sqlite, "saved", iso(-2 * DAY), iso(5 * DAY));
+  for (const id of ["enabled", "quiet", "site-off"]) {
+    sqlite.prepare("INSERT INTO user_saved VALUES (?, 'saved', ?)").run(id, iso(-DAY));
+    sqlite.prepare("INSERT INTO alert_state VALUES (?, 'saved', 'different-before')").run(id);
+  }
+  addAlertDeal(sqlite, "fresh", iso(-3600_000));
+  const cron = {cron:TRANSLATE_CRON, scheduledTime:now} as ScheduledController;
+  await worker.scheduled(cron, env);
+  await worker.scheduled(cron, env);
+  await worker.scheduled({...cron, scheduledTime:now + 7_200_000}, env);
+  assert.deepEqual(sqlite.prepare("SELECT user_id || ':' || kind AS event FROM alert_inbox ORDER BY kind")
+    .all().map(row => row.event), ["enabled:changed","enabled:ending","enabled:newOffer"]);
+  assert.notEqual(sqlite.prepare("SELECT last_revision FROM alert_state WHERE user_id='quiet'").get()?.last_revision, "different-before");
+});
+
+test("alert scan processes a bounded rotating batch and keeps the untouched user's discovery watermark", async t => {
+  const {sqlite, env} = setup(t, true);
+  for (let i = 0; i <= ALERT_USER_BATCH; i++) addAlertUser(sqlite, "u" + i);
+  addAlertDeal(sqlite, "new-for-everyone", iso(-60_000));
+  assert.equal(await generateAccountAlerts(env.DB, new Date(now), 1000), ALERT_USER_BATCH);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM alert_scan_progress").get()?.n, ALERT_USER_BATCH);
+  assert.equal(await generateAccountAlerts(env.DB, new Date(now)), 1);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM alert_inbox").get()?.n, ALERT_USER_BATCH + 1);
+  assert.equal(await generateAccountAlerts(env.DB, new Date(now)), 0);
+});
+
+test("cleanup removes expired sessions, states, tombstones, inbox rows and rate windows only", async t => {
+  const {sqlite, env} = setup(t, true);
+  addAlertUser(sqlite, "u");
+  for (const key of ["old", "fresh"]) {
+    const old = key === "old";
+    sqlite.prepare("INSERT INTO sessions(token_hash,user_id,created_at,rotated_at,expires_at) VALUES (?,'u',?,?,?)")
+      .run(key, iso(-DAY), iso(-DAY), iso(old ? 0 : 6000));
+    sqlite.prepare("INSERT INTO oauth_states VALUES (?,'mock','/',?,?)").run(key, iso(-6000), iso(old ? 0 : 6000));
+    sqlite.prepare("INSERT INTO saved_tombstones VALUES ('u',?,?)").run(key, iso(old ? -31*DAY : -30*DAY));
+    sqlite.prepare("INSERT INTO alert_inbox(user_id,dedupe_key,kind,deal_id,created_at,day) VALUES ('u',?,'ending',?,?,?)")
+      .run(key, key, iso(old ? -91*DAY : -90*DAY), "2026-08-17");
+    sqlite.prepare("INSERT INTO auth_rate VALUES (?,?,1)").run(key, iso(old ? -DAY-1 : -DAY));
+  }
+  sqlite.prepare("INSERT INTO sessions(token_hash,user_id,created_at,rotated_at,expires_at) VALUES ('absolute','u',?,?,?)")
+    .run(iso(-180*DAY), iso(-DAY), iso(DAY));
+  await cleanupAccountAlerts(env.DB, new Date(now));
+  for (const [table, field] of [["sessions","token_hash"],["oauth_states","state_hash"],["saved_tombstones","deal_id"],
+    ["alert_inbox","deal_id"],["auth_rate","bucket"]]) assert.equal(sqlite.prepare(`SELECT ${field} AS v FROM ${table}`).get()?.v, "fresh", table);
+});
+
+test("alert generation failure is isolated from the existing cron translation and collection results", async t => {
+  const {sqlite, env, failScan} = setup(t, true);
+  t.mock.method(globalThis, "fetch", async () => new Response("source unavailable in fixture", {status:503}));
+  const consoleError = t.mock.method(console, "error", () => {});
+  const consoleLog = t.mock.method(console, "log", () => {});
+  const collection = {cron:RADAR_CRON, scheduledTime:now} as ScheduledController;
+  const translation = {cron:TRANSLATE_CRON, scheduledTime:now} as ScheduledController;
+  const off = {...env, ALERTS_SERVER_ENABLED:"0"};
+  await worker.scheduled(collection, off);
+  await worker.scheduled(translation, off);
+  failScan();
+  await worker.scheduled(translation, env);
+  await worker.scheduled(collection, env);
+  const runs = sqlite.prepare("SELECT ok,inserted_count,updated_count,archived_count,skipped_count,error FROM runs ORDER BY rowid").all();
+  assert.equal(runs.length, 2);
+  assert.deepEqual(runs[0], runs[1]);
+  const counts = sqlite.prepare("SELECT COUNT(*) AS n FROM source_checks GROUP BY run_id").all();
+  assert.equal(counts.length, 2);
+  assert.deepEqual(counts[0], counts[1]);
+  const translate = consoleLog.mock.calls.map(call => String(call.arguments[0])).filter(s => s.includes('"message":"translate"'));
+  assert.equal(translate.length, 2);
+  assert.equal(translate[0], translate[1]);
+  assert.equal(consoleError.mock.callCount(), 1);
+  assert.deepEqual(consoleError.mock.calls[0]?.arguments, ["Deal Hunter account alert task failed", "generate"]);
+});
+
+test("inbox API scopes reads to the signed-in account, respects daily digest and validates CSRF", async t => {
+  const {sqlite, read, write, get} = await loginFor(t, true);
+  const user = sqlite.prepare("SELECT id FROM users").get()!.id as string;
+  addAlertUser(sqlite, "other");
+  addAlertDeal(sqlite, "example", iso(0));
+  const insert = sqlite.prepare("INSERT INTO alert_inbox(user_id,dedupe_key,kind,deal_id,created_at,day) VALUES (?,?,'ending','example',?,?)");
+  insert.run(user, "visible", iso(-DAY), "2026-11-14");
+  insert.run(user, "future", iso(0), "2026-11-15");
+  insert.run("other", "private", iso(-DAY), "2026-11-14");
+  await write("/api/me/prefs", {frequency:"daily"});
+  assert.equal((await get("/api/me/inbox")).status, 401);
+  assert.equal((await get("/api/me/inbox/read", {method:"POST"})).status, 403);
+  const inbox = await read("/api/me/inbox?lang=en");
+  assert.match(inbox.headers.get("cache-control")!, /no-store/);
+  assert.deepEqual(await inbox.json(), {
+    entries:[{id:1,kind:"ending",dealId:"example",day:"2026-11-14",readAt:null,title:"Offer example"}],
+    before:null,unread:1,daily:true,
+  });
+  assert.equal((await write("/api/me/inbox/read", {ids:[1,2,3]})).status, 200);
+  assert.deepEqual(sqlite.prepare("SELECT read_at FROM alert_inbox ORDER BY id").all().map(row => row.read_at), [iso(0),null,null]);
+  t.mock.timers.tick(17 * 3600_000 - 1);
+  assert.equal((await (await read("/api/me/inbox")).json<{unread:number}>()).unread, 0);
+  t.mock.timers.tick(1);
+  assert.equal((await (await read("/api/me/inbox")).json<{unread:number}>()).unread, 1);
+  sqlite.prepare("INSERT INTO alert_scan_progress VALUES (?,?)").run(user, iso(0));
+  await write("/api/me/delete", {confirm:"octocat"});
+  assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM alert_scan_progress").get()?.n, 0);
+  assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM alert_inbox").get()?.n, 1);
+});
+
+test("server inbox is unavailable when alerts are disabled for an otherwise signed-in account", async t => {
+  const {read, write} = await loginFor(t);
+  assert.equal((await read("/api/me/inbox")).status, 404);
+  assert.equal((await write("/api/me/inbox/read", {through:1})).status, 404);
+  const me = await (await read("/api/me")).json<{serverAlerts:boolean;unread:number}>();
+  assert.equal(me.serverAlerts, false);
+  assert.equal(me.unread, 0);
 });
