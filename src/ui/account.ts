@@ -24,6 +24,9 @@ const CSS = `
 .account-page select,.account-dialog input{max-width:100%;padding:8px;background:var(--bg);color:var(--ink)}
 .account-dialog .account-actions{margin-top:12px}.account-danger{color:#ffaaa5;border-color:#9b514f}
 .account-status{position:fixed;z-index:50;bottom:1rem;left:1rem;right:1rem;width:fit-content;max-width:calc(100% - 2rem);margin:auto;padding:8px 12px;background:var(--panel);border:1px solid var(--line);color:var(--ink)}
+.account-banner{margin:0 0 16px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-weight:650;line-height:1.5}
+.account-banner-error{color:#ffd7d4;background:#eaa4a418;border-color:#eaa4a466}
+.account-banner-ok{color:#d7fff4;background:#8dd4c818;border-color:#8dd4c866}
 .account-inbox{padding-left:1.25rem}.account-inbox li{margin-block:8px}.account-inbox small{display:block;color:var(--muted)}
 .account-inbox [data-unread=true]{font-weight:700}.account-inbox a{overflow-wrap:anywhere}
 @media(max-width:480px){.topnav-account .account-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.account-dialog{margin:auto auto 0;max-height:85vh}.account-actions>*{min-height:44px}.account-menu summary{max-width:5.5rem}}
@@ -34,21 +37,27 @@ function links(lang: SiteLang) {
   return {account: "/account?lang=" + lang, start: "/api/auth/github/start?" + escapeHtml(query.toString())};
 }
 
-function signInContent(lang: SiteLang, error: boolean, dialog: boolean): string {
+function loginBanner(lang: SiteLang, notice?: "ok" | "error"): string {
+  if (notice === "error") return `<p class="account-banner account-banner-error" role="alert">${escapeHtml(accountCopy.error[lang])}</p>`;
+  if (notice === "ok") return `<p class="account-banner account-banner-ok" role="status">${escapeHtml(accountCopy.signedIn[lang])}</p>`;
+  return "";
+}
+
+function signInContent(lang: SiteLang, dialog: boolean): string {
   const t = (key: keyof typeof accountCopy) => escapeHtml(accountCopy[key][lang]);
   return `<${dialog ? "h2" : "h1"} id="account-title">${t("title")}</${dialog ? "h2" : "h1"}>
-<div data-account-sign-in><p>${t("optional")}</p>${error ? `<p role="alert">${t("error")}</p>` : ""}
+<div data-account-sign-in><p>${t("optional")}</p>
 <p>${t("benefit1")}</p><div class="account-actions"><a class="account-button" href="${links(lang).start}">${t("github")}</a>${dialog
     ? `<button class="account-button" type="button" data-account-dismiss>${t("later")}</button>`
     : `<a href="/?lang=${lang}">${t("later")}</a>`}</div><p>${t("privacy")}</p></div>
 <p data-account-identity hidden></p>`;
 }
 
-export function renderAccount(lang: SiteLang, error: boolean): string {
+export function renderAccount(lang: SiteLang, notice?: "ok" | "error"): string {
   return `<!DOCTYPE html><html lang="${lang === "en" ? "en" : "zh-CN"}" data-lang="${lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>${escapeHtml(accountCopy.account[lang])} · Deal Hunter</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
-<body>${renderNav({active: "detail", lang})}<main class="account-page" id="main">${signInContent(lang, error, false)}${accountDialogs(lang, true)}</main></body></html>`;
+<body>${renderNav({active: "detail", lang})}<main class="account-page" id="main">${loginBanner(lang, notice)}${signInContent(lang, false)}${accountDialogs(lang, true)}</main></body></html>`;
 }
 
 // Replace only the exact script emitted by the public renderer. Cached pages and
@@ -71,7 +80,7 @@ export async function addAccountNav(response: Response, lang: SiteLang, accountP
     copy: Object.fromEntries(Object.entries(accountCopy).map(([key, value]) => [key, value[lang]])),
   }).replaceAll("<", "\\u003c");
   const slot = `<a class="topnav-account" href="${links(lang).account}" data-account-slot><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg><span class="account-label">${escapeHtml(accountCopy.signIn[lang])}</span></a>`;
-  const dialog = accountPage ? "" : `<dialog class="account-dialog" id="login-dialog" aria-labelledby="account-title">${signInContent(lang, false, true)}</dialog>`;
+  const dialog = accountPage ? "" : `<dialog class="account-dialog" id="login-dialog" aria-labelledby="account-title">${signInContent(lang, true)}</dialog>`;
   let body = (await response.text())
     .replace('<nav class="topnav-langs"', () => slot + '<nav class="topnav-langs"')
     .replace("</head>", () => `<style>${CSS}</style></head>`)

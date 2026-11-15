@@ -1,7 +1,7 @@
 import { allowsAccountWrite } from "./csrf";
 import { alertsEnabled } from "./alerts";
 import { deleteAccount, exportAccount, getPrefs, listSaved, MAX_SAVED, mergeSaved, parsePrefs, putPrefs, readAccountBody, updateSaved } from "./data";
-import { failedGitHub, finishGitHub, startGitHub, type GitHubConfig } from "./github";
+import { failedGitHub, finishGitHub, logGitHubLoginException, startGitHub, type GitHubConfig } from "./github";
 import { allowRate } from "./rate";
 import { countUnread, listInbox, markInboxRead } from "./inbox";
 import { authHeaders, authJson, hash } from "./security";
@@ -121,8 +121,12 @@ export async function accountApi(request: Request, env: Env, path: string): Prom
     if (!pepper || !vars.GITHUB_CLIENT_ID || !vars.GITHUB_CLIENT_SECRET) return failedGitHub(request);
     const config: GitHubConfig = {clientId: vars.GITHUB_CLIENT_ID, clientSecret: vars.GITHUB_CLIENT_SECRET, pepper};
     return await (callback ? finishGitHub : startGitHub)(request, env.DB, config, now);
-  } catch {
+  } catch (error) {
+    if (path.startsWith("/api/auth/github/")) {
+      logGitHubLoginException(error);
+      return failedGitHub(request);
+    }
     console.error("Deal Hunter account request failed");
-    return path.startsWith("/api/auth/github/") ? failedGitHub(request) : authJson({error: "unavailable"}, 503);
+    return authJson({error: "unavailable"}, 503);
   }
 }

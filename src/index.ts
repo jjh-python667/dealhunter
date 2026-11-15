@@ -405,8 +405,10 @@ export default {
       defer: ctx ? promise => ctx.waitUntil(promise) : undefined,
     });
     switch (route.kind) {
-      case "account":
-        return addAccountNav(html(renderAccount(lang, url.searchParams.get("login") === "error")), lang, true);
+      case "account": {
+        const login = url.searchParams.get("login");
+        return addAccountNav(html(renderAccount(lang, login === "ok" || login === "error" ? login : undefined)), lang, true);
+      }
       case "home":
         return withAccount(portal("home", () => portalHome(db, lang, url.origin)));
       case "deals":
