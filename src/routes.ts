@@ -60,6 +60,7 @@ export function isChannelKey(value: string): value is ChannelKey {
 
 export type Route =
   | { kind: "home" }
+  | { kind: "account" }
   | { kind: "deals" }
   | { kind: "channel"; channel: ChannelKey }
   | { kind: "detail"; id: string }
@@ -90,8 +91,9 @@ function decodeDealId(segment: string): string | null {
  * One pure route resolver, shared by the Worker and the local preview server.
  * It never touches the database: callers decide what to load for the route.
  */
-export function resolveRoute(url: URL): Route {
+export function resolveRoute(url: URL, options?: { accounts?: boolean }): Route {
   const path = cleanPath(url.pathname);
+  if (path === "/account" && options?.accounts) return { kind: "account" };
   if (path === "/") {
     if (LEGACY_HOME_KEYS.some((key) => url.searchParams.has(key))) {
       return { kind: "redirect", location: `/deals${url.search}`, status: 302 };

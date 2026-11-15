@@ -362,3 +362,11 @@ npm test
 - 关闭翻译：把 `TRANSLATE_ENABLED` 设成 `0`，或去掉 `ai` 绑定。页面自动退回原文。
 - 本地开发没有 AI（AI 绑定只能走远程）：用 `wrangler.local.jsonc`（同配置、去掉 ai）跑 `wrangler dev -c wrangler.local.jsonc`，翻译 Cron 会返回 `no_ai_binding`。
 - 一键上线：`npx wrangler deploy --dry-run --outdir dist && node deploy/build-translate-deploy.cjs`，再把 `deploy/translate-deploy.js` 交给 Cloudflare 连接器 execute 执行（迁移 0002、上传 Worker 并保留 ADMIN_TOKEN、两个 Cron）。
+
+### 可选 GitHub 登录
+
+`ACCOUNTS_ENABLED` 默认为 `"0"`。开启时浏览、搜索和本机收藏继续可用。顶栏登录与 `/account` 使用同源 `GET /api/me` 获取登录态，公开 HTML 和门户快照不包含用户身份。
+
+PR-A 的登录流程使用 GitHub OAuth App、无显式 scope、S256 PKCE 及一次性 state。需要 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET` 和高熵 `SESSION_PEPPER`，并在正式启用前为每个环境核对回调地址 `<origin>/api/auth/github/callback`。会话 Cookie 要求 HTTPS，退出接口要求同源 Origin、JSON 和 `X-DH-CSRF: 1`。测试使用本地 SQLite 和模拟 GitHub 响应。
+
+正向迁移 `migrations/0007_accounts.sql` 只新增账号表。手动回滚脚本位于 `migrations-down/0007_accounts.down.sql`，放在自动迁移目录之外。关闭 `ACCOUNTS_ENABLED` 即可停用功能。手动执行 down 会删除账号表及其中的数据，适用于明确需要移除账号数据的回滚。

@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS alert_inbox;
+DROP TABLE IF EXISTS alert_state;
+DROP TABLE IF EXISTS alert_prefs;
+DROP TABLE IF EXISTS saved_tombstones;
+DROP TABLE IF EXISTS user_saved;
+DROP TABLE IF EXISTS oauth_states;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS identities;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS auth_rate;
