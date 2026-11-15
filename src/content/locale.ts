@@ -1,5 +1,6 @@
 import type { DealRecord } from "../types";
 import { CATEGORY_LABEL } from "../labels";
+import { protectProperNouns } from "./glossary";
 import { ZH_GUIDES } from "./zh-guides";
 
 type Guide = typeof ZH_GUIDES[number];
@@ -18,11 +19,16 @@ const PHRASES: Record<string, string> = {
 };
 
 export function chineseCopy(deal: DealRecord) {
-  // A changed original invalidates the edited copy immediately. Stored AI translations win.
+  // A changed original invalidates the edited copy immediately. A guide that still
+  // matches this source id, title, and summary outranks a stored machine translation.
+  // Stored zhTitle / zhSummary are used only when no guide matches.
   const guide = guides.get(key(deal.sourceId, deal.title, deal.summary));
-  const title = deal.zhTitle?.trim() || guide?.titleZh || "";
-  const summary = deal.zhSummary?.trim() || guide?.summaryZh || "";
-  const machine = Boolean(deal.zhTitle?.trim() || deal.zhSummary?.trim());
+  const source = `${deal.title}\n${deal.summary}`;
+  const storedTitle = deal.zhTitle?.trim() || "";
+  const storedSummary = deal.zhSummary?.trim() || "";
+  const title = protectProperNouns(guide?.titleZh || storedTitle, source);
+  const summary = protectProperNouns(guide?.summaryZh || storedSummary, source);
+  const machine = !guide && Boolean(storedTitle || storedSummary);
   const intro = guide?.introZh || summary || `这条记录来自 ${deal.sourceName}，收录于${CATEGORY_LABEL[deal.category]}。先阅读来源摘要，再核对参与条件、适用地区与期限。`;
   function field(original: string): string | undefined {
     if (!original.trim()) return undefined;

@@ -188,6 +188,26 @@ test("changed English text clears the old translation; unchanged text keeps it",
   assert.equal(pending?.zh_engine, ENGINE);
 });
 
+test("proper nouns are restored before a machine translation is stored", async () => {
+  const db = memoryDb();
+  await insertDeal(db, deal("rail", "Pricing | Railway", "Start with a 30-day trial and $5 of credit", { sourceId: "railway-pricing" }));
+  const ai: TranslatorBinding = {
+    async run() {
+      return { translated_text: "铁路价格，30 天试用，$5 额度" };
+    },
+  };
+  const report = await runTranslation(db, ai, {});
+  assert.equal(report.translated, 1);
+  assert.equal(report.calls, 2);
+  const [row] = await listDeals(db);
+  assert.equal(row?.title, "Pricing | Railway");
+  assert.doesNotMatch(row?.zhTitle ?? "", /铁路/);
+  assert.doesNotMatch(row?.zhSummary ?? "", /铁路/);
+  assert.match(row?.zhTitle ?? "", /Railway/);
+  assert.match(row?.zhSummary ?? "", /\$5/);
+  assert.match(row?.zhSummary ?? "", /30 天/);
+});
+
 test("page renders a 中/EN toggle, defaults to Chinese, and falls back to the original", () => {
   assert.equal(bilingual("Hello <b>", ""), "Hello &lt;b&gt;");
   assert.match(bilingual("Hello", "你好"), /class="t-en" lang="en">Hello<\/span><span class="t-zh" lang="zh-CN">你好/);
