@@ -8,6 +8,10 @@ export type ChannelInfo = {
   eyebrow: string;
   title: string;
   description: string;
+  /** English document title, hero, and description. Chinese fields stay the default. */
+  enEyebrow: string;
+  enTitle: string;
+  enDescription: string;
   category: "ai" | "vps";
   note: string;
   emptyTitle: string;
@@ -24,6 +28,9 @@ export const CHANNELS: Record<ChannelKey, ChannelInfo> = {
     eyebrow: "AI TOOLS · 频道",
     title: "AI 工具优惠",
     description: "AI 订阅、模型额度与开发工具优惠。先核对资格和到期时间，再打开官方入口。",
+    enEyebrow: "AI TOOLS · CHANNEL",
+    enTitle: "AI tool deals",
+    enDescription: "AI subscriptions, model credits, and developer-tool offers. Check eligibility and the end date before opening the official page.",
     category: "ai",
     note: "只显示类别为「AI 订阅优惠」的在册情报。金额、资格与期限以来源原文为准。",
     emptyTitle: "频道里暂时没有匹配的 AI 优惠",
@@ -37,6 +44,9 @@ export const CHANNELS: Record<ChannelKey, ChannelInfo> = {
     eyebrow: "CLOUD · 频道",
     title: "云服务优惠",
     description: "云主机、免费额度与开发者基础设施优惠。先确认绑定与续费规则，再领取。",
+    enEyebrow: "CLOUD · CHANNEL",
+    enTitle: "Cloud deals",
+    enDescription: "Cloud hosts, free credits, and developer-infrastructure offers. Confirm binding and renewal rules before you claim.",
     category: "vps",
     note: "只显示类别为「VPS 及云服务」的在册情报。金额、资格与期限以来源原文为准。",
     emptyTitle: "频道里暂时没有匹配的云服务优惠",

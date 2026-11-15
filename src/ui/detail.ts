@@ -6,6 +6,7 @@ import { CATEGORY_LABEL, DEAL_TYPE_LABEL, show } from "../labels";
 import { escapeHtml } from "../text";
 import type { DealRecord } from "../types";
 import { sanitizeUrl } from "../url";
+import { htmlLang } from "./document";
 import { DETAIL_CSS } from "./detail-styles";
 import { NAV_CSS, renderNav } from "./nav";
 import { bilingual, detailPath, evidenceLabel, externalLink, icon } from "./shared";
@@ -28,7 +29,11 @@ function absoluteDetail(origin: string | undefined, id: string): string {
   return `${base}${detailPath(id)}`;
 }
 
-function metaDescription(deal: DealRecord, title: string): string {
+function metaDescription(deal: DealRecord, title: string, lang: "zh" | "en"): string {
+  if (lang === "en") {
+    const raw = (deal.summary || "").replace(/\s+/g, " ").trim();
+    return (raw || `${deal.title}: offer value, eligibility, deadline, and source evidence.`).slice(0, 180);
+  }
   const copy = chineseCopy(deal);
   const raw = (copy.summary || deal.summary || "").replace(/\s+/g, " ").trim();
   return (raw || `${title}：优惠力度、领取资格、截止时间与原文证据`).slice(0, 180);
@@ -86,9 +91,9 @@ export function renderDealDetail(input: DetailInput): string {
   const status: DealStatus = archived ? "archived" : ended ? "ended" : "active";
   const inactive = status !== "active";
 
-  const title = copy.title || deal.title;
+  const title = lang === "en" ? deal.title : (copy.title || deal.title);
   const pageTitle = `${title} · GLOBAL DEAL HUNTER`;
-  const description = metaDescription(deal, title);
+  const description = metaDescription(deal, title, lang);
   const canonical = absoluteDetail(input.origin, deal.id);
 
   const channel = deal.category === "ai"
@@ -164,7 +169,7 @@ export function renderDealDetail(input: DetailInput): string {
     : '<noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>';
 
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}">
+<html lang="${htmlLang(lang)}" data-lang="${lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(description)}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(pageTitle)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:site_name" content="GLOBAL DEAL HUNTER"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
 <body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
 <main class="detail-page" id="main">

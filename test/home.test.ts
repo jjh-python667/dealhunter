@@ -378,8 +378,15 @@ test("english renders switch the document language and keep the original excerpt
   const rows = [deal("en-one", { summary: "Free trial for students", zhSummary: "面向学生的免费试用" })];
   const zh = renderHome({ deals: rows, now, lang: "zh" });
   const en = renderHome({ deals: rows, now, lang: "en" });
-  assert.match(zh, /data-lang="zh"/);
-  assert.match(en, /data-lang="en"/);
+  assert.match(zh, /<html lang="zh-CN" data-lang="zh"/);
+  assert.match(en, /<html lang="en" data-lang="en"/);
+  assert.match(zh, /<title>全球羊毛情报中心 · GLOBAL DEAL HUNTER<\/title>/);
+  assert.match(zh, /<h1 id="portal-title">全球羊毛情报中心<\/h1>/);
+  assert.match(en, /<title>Global Deal Hunter<\/title>/);
+  assert.match(en, /<meta name="description" content="Global Deal Hunter lists public/);
+  assert.match(en, /<h1 id="portal-title">Global Deal Hunter<\/h1>/);
+  assert.match(en, /<p class="portal-lede">AI tools, cloud services/);
+  assert.doesNotMatch(en, /全球羊毛情报中心/);
   assert.match(en, /Free trial for students/);
   assert.match(zh, /面向学生的免费试用/);
 });

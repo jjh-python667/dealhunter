@@ -295,9 +295,18 @@ test("DETAIL_CSS is mobile-safe, reduced-motion aware and dependency-free", () =
 });
 
 test("preview and language switches keep the page honest", () => {
-  const html = detail(deal("preview"), { preview: true, lang: "en" });
+  const html = detail(deal("preview", {
+    title: "Parallel Decisions on AI Gateway",
+    summary: "Free on AI Gateway.",
+    zhTitle: "平行决策现在在AI Gateway上免费可用",
+    zhSummary: "中文摘要",
+  }), { preview: true, lang: "en" });
   assert.match(html, /本机预览 · 线上数据快照/);
-  assert.match(html, /<html lang="zh-CN" data-lang="en">/);
+  assert.match(html, /<html lang="en" data-lang="en">/);
+  assert.match(html, /<title>Parallel Decisions on AI Gateway · GLOBAL DEAL HUNTER<\/title>/);
+  assert.match(html, /<meta property="og:title" content="Parallel Decisions on AI Gateway · GLOBAL DEAL HUNTER">/);
+  assert.match(html, /<meta name="description" content="Free on AI Gateway\."/);
+  assert.match(html, /<meta property="og:description" content="Free on AI Gateway\."/);
   assert.match(html, /data-set-lang-server="zh"/);
   assert.doesNotMatch(html, /undefined/);
 });

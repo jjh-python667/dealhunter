@@ -1,4 +1,5 @@
 import { escapeHtml } from "../text";
+import { htmlLang } from "./document";
 import { NAV_CSS, renderNav } from "./nav";
 import { PAGE_CSS } from "./styles";
 
@@ -7,7 +8,7 @@ export function renderNotFound(input: { lang?: "zh" | "en"; path?: string; previ
   const lang = input.lang === "en" ? "en" : "zh";
   const path = input.path ? escapeHtml(input.path) : "";
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}">
+<html lang="${htmlLang(lang)}" data-lang="${lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="robots" content="noindex"><meta name="description" content="这条优惠链接不存在，或已经收进档案。"><title>没有找到这条优惠 · GLOBAL DEAL HUNTER</title><style>${PAGE_CSS}${NAV_CSS}${NOT_FOUND_CSS}</style></head>
 <body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
 <main class="notfound" id="main">
@@ -37,7 +38,7 @@ export function renderServiceUnavailable(input: { lang?: "zh" | "en"; path?: str
   const lang = input.lang === "en" ? "en" : "zh";
   const path = input.path ? escapeHtml(input.path) : "";
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}">
+<html lang="${htmlLang(lang)}" data-lang="${lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="robots" content="noindex"><meta name="description" content="数据暂时不可用，请稍后再试。"><title>数据暂时不可用 · GLOBAL DEAL HUNTER</title><style>${PAGE_CSS}${NAV_CSS}${NOT_FOUND_CSS}</style></head>
 <body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
 <main class="notfound" id="main">

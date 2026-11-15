@@ -34,7 +34,7 @@ export function renderNav(input: { active: NavKey; lang?: SiteLang }): string {
   }).join("");
   return `<header class="topnav" data-active="${input.active}">
   <div class="topnav-inner">
-    <a class="topnav-brand" href="/" aria-label="Deal Hunter 首页"><span class="topnav-mark">${icon("radar")}</span><span class="topnav-wordmark"><strong>Deal Hunter</strong><small>全球羊毛情报中心</small></span></a>
+    <a class="topnav-brand" href="/" aria-label="Deal Hunter 首页"><span class="topnav-mark">${icon("radar")}</span><span class="topnav-wordmark"><strong>Deal Hunter</strong><small>${lang === "en" ? "GLOBAL DEAL HUNTER" : "全球羊毛情报中心"}</small></span></a>
     <nav class="topnav-primary" aria-label="优惠频道">${primary}</nav>
     <div class="topnav-tools"><nav class="topnav-tool-links" aria-label="个人工具">${tools}</nav><nav class="topnav-langs" aria-label="内容语言">${langLinks}</nav></div>
   </div>
