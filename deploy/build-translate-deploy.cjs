@@ -7,8 +7,8 @@ const path = require("path");
 const root = path.join(__dirname, "..");
 const js = fs.readFileSync(path.join(root, "dist/index.js"), "utf8").replace(/\n\/\/# sourceMappingURL=.*$/, "");
 const mig = fs.readFileSync(path.join(root, "migrations/0002_translation.sql"), "utf8");
-const AID = "af9ccc517fe45113123e6e5f5b343737";
-const DB = "5589118d-6f7a-48bc-a2fc-61c42f46f0c3";
+const AID = "df11732e5f8bb48f67ab4cfa8f604450";
+const DB = "1e887a64-783e-410e-9faf-47cd4ecef9a2";
 const code = `async () => {
   const aid = ${JSON.stringify(AID)}, db = ${JSON.stringify(DB)};
   const q = (sql) => cloudflare.request({ method: "POST", path: \`/accounts/\${aid}/d1/database/\${db}/query\`, body: { sql } });
