@@ -36,10 +36,10 @@
     {
       "binding": "DB",
       "database_name": "dealhunter",
-      // Real remote D1 created 2026-11-10.
+      // D1 was migrated to the new account on 2026-11-15.
       // `wrangler d1 create dealhunter` before any deploy. Do not deploy this
       // Worker, and do not touch an existing Worker named newsdesk.
-      "database_id": "5589118d-6f7a-48bc-a2fc-61c42f46f0c3"
+      "database_id": "1e887a64-783e-410e-9faf-47cd4ecef9a2"
     }
   ]
 }

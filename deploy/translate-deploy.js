@@ -1,5 +1,5 @@
 async () => {
-  const aid = "af9ccc517fe45113123e6e5f5b343737", db = "5589118d-6f7a-48bc-a2fc-61c42f46f0c3";
+  const aid = "df11732e5f8bb48f67ab4cfa8f604450", db = "1e887a64-783e-410e-9faf-47cd4ecef9a2";
   const q = (sql) => cloudflare.request({ method: "POST", path: `/accounts/${aid}/d1/database/${db}/query`, body: { sql } });
   const applied = await q("SELECT name FROM d1_migrations WHERE name = '0002_translation.sql'");
   let migrated = "already";

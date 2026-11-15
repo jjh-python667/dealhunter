@@ -1,6 +1,6 @@
 # 本机预览数据
 
-`snapshot.json` 来自公开接口 `https://dealhunter.gongjiang667.workers.dev/api/board` 和 `/api/runs`，抓取时间为文件中的 `generatedAt`。这是一份固定快照，不会自行刷新，也不包含密钥。
+`snapshot.json` 来自公开接口 `https://dealhunter.gongjiangcai.workers.dev/api/board` 和 `/api/runs`，抓取时间为文件中的 `generatedAt`。这是一份固定快照，不会自行刷新，也不包含密钥。
 
 预览使用真实公开记录，不补造优惠条件。原始快照没有被改写，当前 28 条记录的中文标题、摘要与简介来自随源码提供的中文整理；原文改变后停止匹配旧中文。后台机器译文仍优先采用，未覆盖内容保留原文。额外的异常状态测试样例单独生成，不混入此快照。
 

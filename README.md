@@ -2,7 +2,7 @@
 
 公开的优惠情报站。它按固定规则抓取一批公开 RSS/Atom 和官方页面，把来源原文里写明的优惠整理进看板。来源没有写的金额、日期、地区、条件，页面上显示「待核实」，不会补造。
 
-[访问线上门户](https://dealhunter.gongjiang667.workers.dev/)。门户首页、AI 工具频道、云服务频道和完整看板已上线。首页推荐榜在 [PR #4](https://github.com/jjh-python667/dealhunter/pull/4) 审阅中，等待发布。
+[访问线上门户](https://dealhunter.gongjiangcai.workers.dev/)。门户首页、AI 工具频道、云服务频道和完整看板已上线。首页推荐榜在 [PR #4](https://github.com/jjh-python667/dealhunter/pull/4) 审阅中，等待发布。
 
 [GitHub 源码](https://github.com/jjh-python667/dealhunter) · [个人作品集](https://jjh-python667.github.io/projects/dealhunter.html)
 
