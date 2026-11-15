@@ -184,9 +184,21 @@ test("a deal detail URL opens directly and escapes hostile titles", async () => 
 });
 
 test("known and unknown deal ids produce the right status", async () => {
-  assert.equal((await fetchPath("/deal/does-not-exist")).status, 404);
-  assert.equal((await fetchPath("/nope")).status, 404);
+  const missingDeal = await fetchPath("/deal/does-not-exist");
+  assert.equal(missingDeal.status, 404);
+  assert.match(await missingDeal.text(), /没有找到这条优惠/);
+  const missingPage = await fetchPath("/nope");
+  assert.equal(missingPage.status, 404);
+  const pageHtml = await missingPage.text();
+  assert.match(pageHtml, /没有找到这个页面/);
+  assert.doesNotMatch(pageHtml, /没有找到这条优惠/);
   assert.equal((await fetchPath("/deal/")).status, 404);
+  const english = await fetchPath("/nope?lang=en");
+  assert.equal(english.status, 404);
+  const englishHtml = await english.text();
+  assert.match(englishHtml, /<html lang="en"/);
+  assert.match(englishHtml, /Page not found/);
+  assert.doesNotMatch(englishHtml, /没有找到/);
 });
 
 test("a database failure on a deal page returns 503 with an honest message, not 404", async () => {

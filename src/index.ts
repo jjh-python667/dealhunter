@@ -272,7 +272,7 @@ async function dealDetail(db: QueryDb, id: string, lang: "zh" | "en", origin: st
   try {
     const now = new Date();
     const deal = await getDeal(db, id);
-    if (!deal) return html(renderNotFound({ lang, path: `/deal/${id}` }), 404);
+    if (!deal) return html(renderNotFound({ lang, path: `/deal/${id}`, kind: "deal" }), 404);
     const termsVersion = dealTermsVersion(deal);
     const feedback = await feedbackSummaryForDeal(db, deal.id, termsVersion, feedbackWindowStart(now))
       .then((result) => result.summary)
@@ -408,7 +408,7 @@ export default {
       case "redirect":
         return new Response(null, { status: route.status, headers: { location: route.location } });
       case "notFound":
-        return html(renderNotFound({ lang, path: url.pathname }), 404);
+        return html(renderNotFound({ lang, path: url.pathname, kind: "page" }), 404);
     }
   },
 
