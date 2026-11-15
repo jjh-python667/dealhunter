@@ -15,6 +15,7 @@ import {
 } from "../src/feedback";
 import { renderPage, uniqueDeals } from "../src/page";
 import { langFromUrl, resolveRoute } from "../src/routes";
+import { FAVICON_SVG, robotsTxt, sitemapXml } from "../src/seo";
 import type { Board, DealRecord, RunRecord, SourceCheck } from "../src/types";
 import { renderDealDetail } from "../src/ui/detail";
 import { renderHome } from "../src/ui/home";
@@ -140,6 +141,23 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       await handleFeedback(request, response);
       return;
     }
+    if (url.pathname === "/robots.txt") {
+      send(response, 200, robotsTxt(url.origin), "text/plain; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/sitemap.xml") {
+      send(response, 200, sitemapXml(url.origin, deals), "application/xml; charset=utf-8");
+      return;
+    }
+    if (url.pathname === "/favicon.svg") {
+      send(response, 200, FAVICON_SVG, "image/svg+xml");
+      return;
+    }
+    if (url.pathname === "/favicon.ico") {
+      response.writeHead(302, { location: "/favicon.svg", "cache-control": "public, max-age=3600" });
+      response.end();
+      return;
+    }
     const route = resolveRoute(url);
     const lang = langFromUrl(url);
     if (route.kind === "redirect") {
@@ -162,7 +180,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
       return;
     }
     if (route.kind === "home") {
-      send(response, 200, renderHome({ deals, now, lang, run: snapshot.run, preview: true }));
+      send(response, 200, renderHome({ deals, now, lang, run: snapshot.run, preview: true, origin: url.origin }));
       return;
     }
     const board = buildBoard(deals as DealRecord[], now);
@@ -178,6 +196,7 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
         expand: false,
         lang,
         preview: true,
+        origin: url.origin,
         channel: route.kind === "channel" ? route.channel : undefined,
       }),
     );

@@ -8,6 +8,7 @@ import type { DealRecord } from "../types";
 import { sanitizeUrl } from "../url";
 import { htmlLang } from "./document";
 import { DETAIL_CSS } from "./detail-styles";
+import { canonicalUrl, seoHead } from "./meta";
 import { NAV_CSS, renderNav } from "./nav";
 import { bilingual, detailPath, evidenceLabel, externalLink, icon } from "./shared";
 import { PAGE_CSS } from "./styles";
@@ -23,11 +24,6 @@ export type DetailInput = {
 };
 
 type DealStatus = "active" | "ended" | "archived";
-
-function absoluteDetail(origin: string | undefined, id: string): string {
-  const base = (origin ?? "").trim().replace(/\/+$/, "");
-  return `${base}${detailPath(id)}`;
-}
 
 function metaDescription(deal: DealRecord, title: string, lang: "zh" | "en"): string {
   if (lang === "en") {
@@ -94,7 +90,21 @@ export function renderDealDetail(input: DetailInput): string {
   const title = lang === "en" ? deal.title : (copy.title || deal.title);
   const pageTitle = `${title} · GLOBAL DEAL HUNTER`;
   const description = metaDescription(deal, title, lang);
-  const canonical = absoluteDetail(input.origin, deal.id);
+  const jsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: title,
+    description,
+    mainEntityOfPage: canonicalUrl(input.origin, detailPath(deal.id)),
+    inLanguage: htmlLang(lang),
+  };
+  if (deal.lastVerifiedAt && Number.isFinite(Date.parse(deal.lastVerifiedAt))) jsonLd.dateModified = deal.lastVerifiedAt;
+  if (deal.valueAmount != null && Number.isFinite(deal.valueAmount)) {
+    const offer: Record<string, unknown> = { "@type": "Offer", price: deal.valueAmount };
+    if (deal.valueCurrency) offer.priceCurrency = deal.valueCurrency;
+    if (deal.endsAt) offer.priceValidUntil = deal.endsAt.slice(0, 10);
+    jsonLd.offers = offer;
+  }
 
   const channel = deal.category === "ai"
     ? { href: "/ai-tools", label: "AI 工具" }
@@ -170,7 +180,7 @@ export function renderDealDetail(input: DetailInput): string {
 
   return `<!DOCTYPE html>
 <html lang="${htmlLang(lang)}" data-lang="${lang}">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(description)}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(pageTitle)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:site_name" content="GLOBAL DEAL HUNTER"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: pageTitle, description, path: detailPath(deal.id), origin: input.origin, type: "article", jsonLd })}<title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
 <body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
 <main class="detail-page" id="main">
   ${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照</p>' : ""}

@@ -38,6 +38,7 @@ import {
 } from "./feedback";
 import { renderPage } from "./page";
 import { langFromUrl, resolveRoute } from "./routes";
+import { assetResponse, FAVICON_SVG, robotsTxt, sitemapXml } from "./seo";
 import { RADAR_CRON, scheduledSources } from "./sources";
 import { saveSnapshots, serveSnapshot, snapshotBoundary, type SnapshotLang, type SnapshotPage } from "./snapshots";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
@@ -201,10 +202,10 @@ async function reviewFeedbackRequest(request: Request, db: QueryDb, adminToken: 
   }
 }
 
-async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channel?: "ai" | "cloud"): Promise<Response> {
+async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", origin: string, channel?: "ai" | "cloud"): Promise<Response> {
   try {
     const now = new Date();
-    return html(renderPage({ ...await dashboardData(db, now), expand, lang, channel }));
+    return html(renderPage({ ...await dashboardData(db, now), expand, lang, channel, origin }));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "dashboard load failed", error: message }));
@@ -217,6 +218,7 @@ async function dashboard(db: QueryDb, expand: boolean, lang: "zh" | "en", channe
         expand: false,
         dbError: "unavailable",
         channel,
+        origin,
       }),
       500,
     );
@@ -251,18 +253,18 @@ async function refreshSnapshots(env: Env): Promise<void> {
   }
 }
 
-async function portalHome(db: QueryDb, lang: "zh" | "en"): Promise<Response> {
+async function portalHome(db: QueryDb, lang: "zh" | "en", origin: string): Promise<Response> {
   try {
     const now = new Date();
     let dealRows: number | undefined;
     const [deals, run] = await Promise.all([listDeals(db, rows => { dealRows = rows; }), latestRun(db)]);
-    const response = html(renderHome({ deals, now, lang, run }));
+    const response = html(renderHome({ deals, now, lang, run, origin }));
     if (dealRows !== undefined) response.headers.set("server-timing", `deal_d1_rows;dur=${dealRows}`);
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "home load failed", error: message }));
-    return html(renderHome({ deals: [], now: new Date(), lang, run: null, error: "unavailable" }), 500);
+    return html(renderHome({ deals: [], now: new Date(), lang, run: null, error: "unavailable", origin }), 500);
   }
 }
 
@@ -365,6 +367,27 @@ export default {
       return json({ error: "not_found" }, 404);
     }
 
+    if (url.pathname === "/robots.txt") {
+      return assetResponse(robotsTxt(url.origin), "text/plain; charset=utf-8", { maxAge: 3600 });
+    }
+    if (url.pathname === "/sitemap.xml") {
+      try {
+        return assetResponse(sitemapXml(url.origin, await listDeals(db)), "application/xml; charset=utf-8", { maxAge: 900 });
+      } catch (error) {
+        console.error(JSON.stringify({ message: "sitemap load failed", error: error instanceof Error ? error.message : String(error) }));
+        return assetResponse(sitemapXml(url.origin, []), "application/xml; charset=utf-8", { status: 503 });
+      }
+    }
+    if (url.pathname === "/favicon.svg") {
+      return assetResponse(FAVICON_SVG, "image/svg+xml", { maxAge: 3600 });
+    }
+    if (url.pathname === "/favicon.ico") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "/favicon.svg", "cache-control": "public, max-age=3600" },
+      });
+    }
+
     const lang = langFromUrl(url);
     const route = resolveRoute(url);
     const portal = (page: SnapshotPage, live: () => Promise<Response>) => serveSnapshot({
@@ -373,13 +396,13 @@ export default {
     });
     switch (route.kind) {
       case "home":
-        return portal("home", () => portalHome(db, lang));
+        return portal("home", () => portalHome(db, lang, url.origin));
       case "deals":
-        return dashboard(db, url.searchParams.get("expand") === "1", lang);
+        return dashboard(db, url.searchParams.get("expand") === "1", lang, url.origin);
       case "channel":
         return url.searchParams.get("expand") === "1"
-          ? dashboard(db, true, lang, route.channel)
-          : portal(route.channel, () => dashboard(db, false, lang, route.channel));
+          ? dashboard(db, true, lang, url.origin, route.channel)
+          : portal(route.channel, () => dashboard(db, false, lang, url.origin, route.channel));
       case "detail":
         return dealDetail(db, route.id, lang, url.origin);
       case "redirect":

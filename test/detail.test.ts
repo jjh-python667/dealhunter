@@ -242,6 +242,10 @@ test("canonical and Open Graph point at the shareable detail URL", () => {
   assert.match(html, /<meta property="og:title" content="OG 优惠 · GLOBAL DEAL HUNTER">/);
   assert.match(html, /<meta property="og:url" content="https:\/\/dealhunter\.example\/deal\/og-1">/);
   assert.match(html, /<meta property="og:description" content="人人免费">/);
+  assert.match(html, /<meta property="og:locale" content="zh_CN">/);
+  assert.match(html, /<meta name="twitter:card" content="summary">/);
+  assert.match(html, /<meta property="og:site_name" content="GLOBAL DEAL HUNTER">/);
+  assert.doesNotMatch(html, /og:image/);
   assert.match(html, /<title>OG 优惠 · GLOBAL DEAL HUNTER<\/title>/);
 });
 

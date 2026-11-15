@@ -6,6 +6,7 @@ import { REGIONS } from "./content/evidence";
 import { CHANNELS, type ChannelKey } from "./routes";
 import { CLIENT_SCRIPT } from "./ui/client";
 import { dealsDocument, htmlLang } from "./ui/document";
+import { seoHead } from "./ui/meta";
 import { NAV_CSS, renderNav } from "./ui/nav";
 import { externalLink, icon, renderCard, stamp } from "./ui/shared";
 import { PAGE_CSS } from "./ui/styles";
@@ -76,6 +77,7 @@ export function renderPage(input: {
   dbError?: string;
   lang?: "zh" | "en";
   preview?: boolean;
+  origin?: string;
   updateToken?: string;
   /** When set, the page is one of the two public channels and every count is scoped to it. */
   channel?: ChannelKey;
@@ -147,7 +149,7 @@ export function renderPage(input: {
   const emptyNote = channelInfo ? channelInfo.emptyNote : "试试更短的关键词，或清除分类与优惠类型筛选。";
   return `<!DOCTYPE html>
 <html lang="${htmlLang(lang)}" data-lang="${lang}" data-channel="${channelInfo ? channelInfo.category : ""}" data-snapshot-at="${input.now.getTime()}"${input.updateToken === undefined ? "" : ` data-update-token="${escapeHtml(input.updateToken)}"`}>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(pageDescription)}"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: pageTitle, description: pageDescription, path: channelInfo ? channelInfo.path : "/deals", origin: input.origin, type: "website" })}<title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
 <body><a class="skip" href="#main">跳到优惠列表</a>${renderNav({ active: channelInfo ? channelInfo.navKey : "deals", lang })}
 <div class="shell">
   <aside class="sidebar"><a class="brand" href="/" aria-label="Deal Hunter 首页"><span class="brand-mark">${icon("radar")}</span><span><strong>Deal Hunter</strong><small>GLOBAL OPPORTUNITIES</small></span></a><p class="nav-label">发现 · DISCOVER</p><nav class="view-nav" aria-label="情报视图">${views.map(view => `<button class="view-tab" type="button" data-view="${view.id}" aria-pressed="${view.id === "all"}"${view.id === "new" ? " hidden" : ""}>${icon(view.glyph)}<span>${view.title}</span><b${view.id === "saved" ? ' id="saved-count"' : ""}>${view.count}</b></button>`).join("")}</nav><div class="side-note"><a href="#sources">查看来源状态 ${icon("arrow")}</a></div></aside>

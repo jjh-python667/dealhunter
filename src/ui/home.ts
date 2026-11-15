@@ -8,6 +8,7 @@ import { sanitizeUrl } from "../url";
 import type { DealRecord, RunRecord } from "../types";
 import { homeDocument, htmlLang } from "./document";
 import { HOME_CSS } from "./home-styles";
+import { seoHead } from "./meta";
 import { NAV_CSS, renderNav } from "./nav";
 import { bilingual, dealIsArchived, detailPath, externalLink, icon, stamp } from "./shared";
 import { PAGE_CSS } from "./styles";
@@ -21,6 +22,7 @@ export type HomeInput = {
   run?: RunRecord | null;
   error?: string;
   preview?: boolean;
+  origin?: string;
 };
 
 type SiteLang = "zh" | "en";
@@ -288,7 +290,7 @@ export function renderHome(input: HomeInput): string {
 
   return `<!DOCTYPE html>
 <html lang="${htmlLang(lang)}" data-lang="${lang}" data-snapshot-at="${now.getTime()}">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(doc.description)}"><title>${escapeHtml(doc.title)}</title><style>${PAGE_CSS}${NAV_CSS}${HOME_CSS}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: doc.title, description: doc.description, path: "/", origin: input.origin, type: "website" })}<title>${escapeHtml(doc.title)}</title><style>${PAGE_CSS}${NAV_CSS}${HOME_CSS}</style></head>
 <body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "home", lang })}
 <main class="portal" id="main">
 ${hero}
