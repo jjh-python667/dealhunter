@@ -26,7 +26,7 @@
   "ai": { "binding": "AI" },
   "vars": {
     "ACCOUNTS_ENABLED": "1",
-    "ALERTS_SERVER_ENABLED": "0",
+    "ALERTS_SERVER_ENABLED": "1",
     "TRANSLATE_ENABLED": "1",
     "TRANSLATE_BATCH": "6",
     "TRANSLATE_DAILY_MAX": "80"
