@@ -1,4 +1,5 @@
 import { adminDecision } from "./auth";
+import { accountApi, accountsEnabled } from "./accounts/api";
 import { buildBoard } from "./board";
 import { runCollection } from "./collect";
 import {
@@ -43,6 +44,7 @@ import { RADAR_CRON, scheduledSources } from "./sources";
 import { saveSnapshots, serveSnapshot, snapshotBoundary, type SnapshotLang, type SnapshotPage } from "./snapshots";
 import { TRANSLATE_CRON, limitsFromEnv, runTranslation, type TranslatorBinding } from "./translate";
 import { renderDealDetail } from "./ui/detail";
+import { addAccountNav, renderAccount } from "./ui/account";
 import { renderHome } from "./ui/home";
 import { renderNotFound, renderServiceUnavailable } from "./ui/notfound";
 
@@ -295,6 +297,10 @@ export default {
     const db = env.DB as unknown as QueryDb;
     console.log(JSON.stringify({ message: "request", method: request.method, path: url.pathname }));
 
+    if (url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/") ||
+        url.pathname === "/api/me" || url.pathname.startsWith("/api/me/")) {
+      return accountApi(request, env, url.pathname);
+    }
     if (url.pathname === "/api/health") {
       return json({ ok: true, worker: "dealhunter" });
     }
@@ -389,26 +395,31 @@ export default {
     }
 
     const lang = langFromUrl(url);
-    const route = resolveRoute(url);
+    const enabled = accountsEnabled(env);
+    const withAccount = async (response: Response | Promise<Response>) =>
+      enabled ? addAccountNav(await response, lang) : response;
+    const route = resolveRoute(url, { accounts: enabled });
     const portal = (page: SnapshotPage, live: () => Promise<Response>) => serveSnapshot({
       request, page, lang, db: env.DB, cache: typeof caches === "undefined" ? undefined : caches.default, html, live,
       defer: ctx ? promise => ctx.waitUntil(promise) : undefined,
     });
     switch (route.kind) {
+      case "account":
+        return addAccountNav(html(renderAccount(lang, url.searchParams.get("login") === "error")), lang, true);
       case "home":
-        return portal("home", () => portalHome(db, lang, url.origin));
+        return withAccount(portal("home", () => portalHome(db, lang, url.origin)));
       case "deals":
-        return dashboard(db, url.searchParams.get("expand") === "1", lang, url.origin);
+        return withAccount(dashboard(db, url.searchParams.get("expand") === "1", lang, url.origin));
       case "channel":
-        return url.searchParams.get("expand") === "1"
+        return withAccount(url.searchParams.get("expand") === "1"
           ? dashboard(db, true, lang, url.origin, route.channel)
-          : portal(route.channel, () => dashboard(db, false, lang, url.origin, route.channel));
+          : portal(route.channel, () => dashboard(db, false, lang, url.origin, route.channel)));
       case "detail":
-        return dealDetail(db, route.id, lang, url.origin);
+        return withAccount(dealDetail(db, route.id, lang, url.origin));
       case "redirect":
         return new Response(null, { status: route.status, headers: { location: route.location } });
       case "notFound":
-        return html(renderNotFound({ lang, path: url.pathname, kind: "page" }), 404);
+        return withAccount(html(renderNotFound({ lang, path: url.pathname, kind: "page" }), 404));
     }
   },
 

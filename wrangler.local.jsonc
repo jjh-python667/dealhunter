@@ -23,6 +23,7 @@
   // Usage is capped in code (TRANSLATE_DAILY_MAX rows/day) far below the free
   // 10,000 Neurons/day. Set TRANSLATE_ENABLED to "0" to turn it off without a redeploy of code.
     "vars": {
+    "ACCOUNTS_ENABLED": "0",
     "TRANSLATE_ENABLED": "1",
     "TRANSLATE_BATCH": "6",
     "TRANSLATE_DAILY_MAX": "80"
