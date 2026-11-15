@@ -6,7 +6,9 @@ import { CATEGORY_LABEL, DEAL_TYPE_LABEL, show } from "../labels";
 import { escapeHtml } from "../text";
 import { sanitizeUrl } from "../url";
 import type { DealRecord, RunRecord } from "../types";
+import { homeDocument, htmlLang } from "./document";
 import { HOME_CSS } from "./home-styles";
+import { seoHead } from "./meta";
 import { NAV_CSS, renderNav } from "./nav";
 import { bilingual, dealIsArchived, detailPath, externalLink, icon, stamp } from "./shared";
 import { PAGE_CSS } from "./styles";
@@ -20,12 +22,11 @@ export type HomeInput = {
   run?: RunRecord | null;
   error?: string;
   preview?: boolean;
+  origin?: string;
 };
 
 type SiteLang = "zh" | "en";
 
-const TITLE = "全球羊毛情报中心 · GLOBAL DEAL HUNTER";
-const DESCRIPTION = "全球羊毛情报中心：公开来源中的 AI 工具、云服务、学生资源与数字优惠。中文整理 + 原文对照，金额、资格与期限以活动原文为准。";
 const LATEST_LIMIT = 6;
 const ENDING_LIMIT = 4;
 const FOR_YOU_LIMIT = 12;
@@ -215,6 +216,7 @@ function sectionHead(input: {
 /** Portal homepage, rendered without client JS. */
 export function renderHome(input: HomeInput): string {
   const lang: SiteLang = input.lang === "en" ? "en" : "zh";
+  const doc = homeDocument(lang);
   const now = input.now;
   const active = input.deals.filter(deal => isActive(deal, now));
   const today = shanghaiDay(now);
@@ -241,8 +243,8 @@ export function renderHome(input: HomeInput): string {
     <div class="portal-hero-copy">
       ${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照 · 未触发采集或 AI 翻译</p>' : ""}
       <p class="eyebrow">GLOBAL DEAL HUNTER</p>
-      <h1 id="portal-title">全球羊毛情报中心</h1>
-      <p class="portal-lede">汇集 AI 工具、云服务、学生资源与数字优惠。先看中文整理，再按地区、期限与条件核对来源原文；金额与资格以活动页面为准。</p>
+      <h1 id="portal-title">${escapeHtml(doc.h1)}</h1>
+      <p class="portal-lede">${escapeHtml(doc.lede)}</p>
       <div class="portal-quick" aria-label="热门入口"><a class="portal-chip" href="/ai-tools">AI 工具</a><a class="portal-chip" href="/cloud">云服务</a><a class="portal-chip" href="/deals?q=%E6%97%A0%E9%9C%80%E7%BB%91%E5%8D%A1">无需绑卡</a><a class="portal-chip" href="/deals?view=ending">7 天内截止</a></div>
     </div>
     <div class="portal-hero-side">
@@ -287,9 +289,9 @@ export function renderHome(input: HomeInput): string {
 </footer>`;
 
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}" data-snapshot-at="${now.getTime()}">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(DESCRIPTION)}"><title>${escapeHtml(TITLE)}</title><style>${PAGE_CSS}${NAV_CSS}${HOME_CSS}</style></head>
-<body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "home", lang })}
+<html lang="${htmlLang(lang)}" data-lang="${lang}" data-snapshot-at="${now.getTime()}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: doc.title, description: doc.description, path: "/", origin: input.origin, type: "website" })}<title>${escapeHtml(doc.title)}</title><style>${PAGE_CSS}${NAV_CSS}${HOME_CSS}</style></head>
+<body><a class="skip" href="#main">${lang === "en" ? "Skip to content" : "跳到正文"}</a>${renderNav({ active: "home", lang })}
 <main class="portal" id="main">
 ${hero}
 ${errorBanner}

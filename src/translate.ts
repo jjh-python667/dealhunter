@@ -1,3 +1,4 @@
+import { protectProperNouns, shieldProperNouns } from "./content/glossary";
 import type { QueryDb } from "./db";
 
 /**
@@ -173,18 +174,23 @@ export async function runTranslation(
       let zhSummary = "";
       if (wantTitle) {
         const source = clip(row.title, 200);
+        const shielded = shieldProperNouns(source);
         report.calls += 1;
         report.inputChars += source.length;
-        const out = readTranslation(await ai.run(MODEL, { text: source, source_lang: "english", target_lang: "chinese" }));
-        if (acceptable(source, out)) zhTitle = out;
+        const out = readTranslation(await ai.run(MODEL, { text: shielded.text, source_lang: "english", target_lang: "chinese" }));
+        if (acceptable(source, out)) zhTitle = shielded.restore(out);
       }
       if (wantSummary) {
         const source = clip(row.summary, limits.maxChars);
+        const shielded = shieldProperNouns(source);
         report.calls += 1;
         report.inputChars += source.length;
-        const out = readTranslation(await ai.run(MODEL, { text: source, source_lang: "english", target_lang: "chinese" }));
-        if (acceptable(source, out)) zhSummary = out;
+        const out = readTranslation(await ai.run(MODEL, { text: shielded.text, source_lang: "english", target_lang: "chinese" }));
+        if (acceptable(source, out)) zhSummary = shielded.restore(out);
       }
+      const combinedSource = `${row.title}\n${row.summary}`;
+      if (zhTitle) zhTitle = protectProperNouns(zhTitle, combinedSource);
+      if (zhSummary) zhSummary = protectProperNouns(zhSummary, combinedSource);
       const ok = Boolean(zhTitle || zhSummary);
       await db
         .prepare(

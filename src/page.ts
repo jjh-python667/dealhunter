@@ -5,6 +5,8 @@ import type { Board, BoardSectionId, DealRecord, RunRecord, SourceCheck } from "
 import { REGIONS } from "./content/evidence";
 import { CHANNELS, type ChannelKey } from "./routes";
 import { CLIENT_SCRIPT } from "./ui/client";
+import { dealsDocument, htmlLang } from "./ui/document";
+import { seoHead } from "./ui/meta";
 import { NAV_CSS, renderNav } from "./ui/nav";
 import { externalLink, icon, renderCard, stamp } from "./ui/shared";
 import { PAGE_CSS } from "./ui/styles";
@@ -75,6 +77,7 @@ export function renderPage(input: {
   dbError?: string;
   lang?: "zh" | "en";
   preview?: boolean;
+  origin?: string;
   updateToken?: string;
   /** When set, the page is one of the two public channels and every count is scoped to it. */
   channel?: ChannelKey;
@@ -121,17 +124,20 @@ export function renderPage(input: {
         sections: (membership.get(deal.id) ?? []).join(" "),
       });
     }).join("");
-  const heroTitle = channelInfo ? channelInfo.title : "全球羊毛情报中心";
-  const heroEyebrow = channelInfo ? channelInfo.eyebrow : "GLOBAL DEAL HUNTER";
+  const boardDoc = dealsDocument(lang);
+  const heroTitle = channelInfo ? (lang === "en" ? channelInfo.enTitle : channelInfo.title) : boardDoc.h1;
+  const heroEyebrow = channelInfo ? (lang === "en" ? channelInfo.enEyebrow : channelInfo.eyebrow) : "GLOBAL DEAL HUNTER";
   const heroDescription = channelInfo
-    ? channelInfo.description
-    : "汇集 AI 工具、云服务、学生资源与数字优惠。先看中文简介，再按地区、期限和条件核对原文。";
+    ? (lang === "en" ? channelInfo.enDescription : channelInfo.description)
+    : boardDoc.lede;
   const pageTitle = channelInfo
-    ? `${channelInfo.title} · GLOBAL DEAL HUNTER`
-    : "全球羊毛情报中心 · GLOBAL DEAL HUNTER";
+    ? `${lang === "en" ? channelInfo.enTitle : channelInfo.title} · GLOBAL DEAL HUNTER`
+    : boardDoc.title;
   const pageDescription = channelInfo
-    ? `${channelInfo.description} 金额、资格与期限以来源原文为准。`
-    : "全球羊毛情报中心：发现公开来源中的 AI 工具、云服务与数字优惠。支持中文阅读、原文对照、分类筛选和本机收藏。金额与资格以活动原文为准。";
+    ? (lang === "en"
+      ? `${channelInfo.enDescription} Amounts, eligibility, and deadlines follow the source.`
+      : `${channelInfo.description} 金额、资格与期限以来源原文为准。`)
+    : boardDoc.description;
   const scopeWord = channelInfo ? channelInfo.label : "全部";
   const otherChannel = input.channel === "ai" ? CHANNELS.cloud : input.channel === "cloud" ? CHANNELS.ai : undefined;
   const channelNote = channelInfo
@@ -142,9 +148,9 @@ export function renderPage(input: {
   const emptyTitle = channelInfo ? channelInfo.emptyTitle : "暂时没有匹配的情报";
   const emptyNote = channelInfo ? channelInfo.emptyNote : "试试更短的关键词，或清除分类与优惠类型筛选。";
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}" data-channel="${channelInfo ? channelInfo.category : ""}" data-snapshot-at="${input.now.getTime()}"${input.updateToken === undefined ? "" : ` data-update-token="${escapeHtml(input.updateToken)}"`}>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(pageDescription)}"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
-<body><a class="skip" href="#main">跳到优惠列表</a>${renderNav({ active: channelInfo ? channelInfo.navKey : "deals", lang })}
+<html lang="${htmlLang(lang)}" data-lang="${lang}" data-channel="${channelInfo ? channelInfo.category : ""}" data-snapshot-at="${input.now.getTime()}"${input.updateToken === undefined ? "" : ` data-update-token="${escapeHtml(input.updateToken)}"`}>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: pageTitle, description: pageDescription, path: channelInfo ? channelInfo.path : "/deals", origin: input.origin, type: "website" })}<title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}</style></head>
+<body><a class="skip" href="#main">${lang === "en" ? "Skip to the deal list" : "跳到优惠列表"}</a>${renderNav({ active: channelInfo ? channelInfo.navKey : "deals", lang })}
 <div class="shell">
   <aside class="sidebar"><a class="brand" href="/" aria-label="Deal Hunter 首页"><span class="brand-mark">${icon("radar")}</span><span><strong>Deal Hunter</strong><small>GLOBAL OPPORTUNITIES</small></span></a><p class="nav-label">发现 · DISCOVER</p><nav class="view-nav" aria-label="情报视图">${views.map(view => `<button class="view-tab" type="button" data-view="${view.id}" aria-pressed="${view.id === "all"}"${view.id === "new" ? " hidden" : ""}>${icon(view.glyph)}<span>${view.title}</span><b${view.id === "saved" ? ' id="saved-count"' : ""}>${view.count}</b></button>`).join("")}</nav><div class="side-note"><a href="#sources">查看来源状态 ${icon("arrow")}</a></div></aside>
   <main class="workspace" id="main"><header class="hero"><div class="hero-copy">${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照 · 未触发采集或 AI 翻译</p>' : ""}<p class="eyebrow">${escapeHtml(heroEyebrow)}</p><h1>${escapeHtml(heroTitle)}</h1><p class="hero-description">${escapeHtml(heroDescription)}</p></div><div class="hero-stats" aria-label="情报概况"><div><strong>${scopedActive.length}</strong><span>${escapeHtml(scopeWord)}在册</span></div><div><strong>${ok}<span style="display:inline;font-size:16px"> / ${input.checks.length}</span></strong><span>来源最近成功</span></div></div></header>

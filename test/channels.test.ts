@@ -32,6 +32,23 @@ function cardIds(html: string): string[] {
   return [...html.matchAll(/<article [^>]*data-id="([^"]+)"/g)].map(match => match[1]);
 }
 
+test("an English channel page uses an English document title and hero", () => {
+  const html = page([deal("ai-1", { category: "ai" })], { channel: "ai", lang: "en" });
+  assert.match(html, /<html lang="en" data-lang="en"/);
+  assert.match(html, /<title>AI tool deals · GLOBAL DEAL HUNTER<\/title>/);
+  assert.match(html, /<h1>AI tool deals<\/h1>/);
+  assert.match(html, /<p class="hero-description">AI subscriptions, model credits/);
+  assert.doesNotMatch(html, /AI 工具优惠/);
+  const cloud = page([deal("vps-1", { category: "vps" })], { channel: "cloud", lang: "en" });
+  assert.match(cloud, /<title>Cloud deals · GLOBAL DEAL HUNTER<\/title>/);
+  assert.match(cloud, /<h1>Cloud deals<\/h1>/);
+  const deals = page([deal("soft-1")], { lang: "en" });
+  assert.match(deals, /<html lang="en" data-lang="en"/);
+  assert.match(deals, /<title>All deals · GLOBAL DEAL HUNTER<\/title>/);
+  assert.match(deals, /<h1>All deals<\/h1>/);
+  assert.doesNotMatch(deals, /全球羊毛情报中心/);
+});
+
 test("the AI channel renders only AI cards and marks itself as the current page", () => {
   const rows = [deal("ai-1", { category: "ai" }), deal("vps-1", { category: "vps" }), deal("soft-1", { category: "software" })];
   const html = page(rows, { channel: "ai" });

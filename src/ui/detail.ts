@@ -6,7 +6,9 @@ import { CATEGORY_LABEL, DEAL_TYPE_LABEL, show } from "../labels";
 import { escapeHtml } from "../text";
 import type { DealRecord } from "../types";
 import { sanitizeUrl } from "../url";
+import { htmlLang } from "./document";
 import { DETAIL_CSS } from "./detail-styles";
+import { canonicalUrl, seoHead } from "./meta";
 import { NAV_CSS, renderNav } from "./nav";
 import { bilingual, detailPath, evidenceLabel, externalLink, icon } from "./shared";
 import { PAGE_CSS } from "./styles";
@@ -23,12 +25,11 @@ export type DetailInput = {
 
 type DealStatus = "active" | "ended" | "archived";
 
-function absoluteDetail(origin: string | undefined, id: string): string {
-  const base = (origin ?? "").trim().replace(/\/+$/, "");
-  return `${base}${detailPath(id)}`;
-}
-
-function metaDescription(deal: DealRecord, title: string): string {
+function metaDescription(deal: DealRecord, title: string, lang: "zh" | "en"): string {
+  if (lang === "en") {
+    const raw = (deal.summary || "").replace(/\s+/g, " ").trim();
+    return (raw || `${deal.title}: offer value, eligibility, deadline, and source evidence.`).slice(0, 180);
+  }
   const copy = chineseCopy(deal);
   const raw = (copy.summary || deal.summary || "").replace(/\s+/g, " ").trim();
   return (raw || `${title}：优惠力度、领取资格、截止时间与原文证据`).slice(0, 180);
@@ -86,17 +87,34 @@ export function renderDealDetail(input: DetailInput): string {
   const status: DealStatus = archived ? "archived" : ended ? "ended" : "active";
   const inactive = status !== "active";
 
-  const title = copy.title || deal.title;
+  const title = lang === "en" ? deal.title : (copy.title || deal.title);
   const pageTitle = `${title} · GLOBAL DEAL HUNTER`;
-  const description = metaDescription(deal, title);
-  const canonical = absoluteDetail(input.origin, deal.id);
+  const description = metaDescription(deal, title, lang);
+  const jsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: title,
+    description,
+    mainEntityOfPage: canonicalUrl(input.origin, detailPath(deal.id)),
+    inLanguage: htmlLang(lang),
+  };
+  if (deal.lastVerifiedAt && Number.isFinite(Date.parse(deal.lastVerifiedAt))) jsonLd.dateModified = deal.lastVerifiedAt;
+  if (deal.valueAmount != null && Number.isFinite(deal.valueAmount)) {
+    const offer: Record<string, unknown> = { "@type": "Offer", price: deal.valueAmount };
+    if (deal.valueCurrency) offer.priceCurrency = deal.valueCurrency;
+    if (deal.endsAt) offer.priceValidUntil = deal.endsAt.slice(0, 10);
+    jsonLd.offers = offer;
+  }
 
+  const crumb = lang === "en"
+    ? { aria: "Breadcrumb", home: "Home", ai: "AI tools", cloud: "Cloud", deals: "All deals", current: "Offer" }
+    : { aria: "面包屑", home: "首页", ai: "AI 工具", cloud: "云服务", deals: "全部情报", current: "优惠详情" };
   const channel = deal.category === "ai"
-    ? { href: "/ai-tools", label: "AI 工具" }
+    ? { href: "/ai-tools", label: crumb.ai }
     : deal.category === "vps"
-      ? { href: "/cloud", label: "云服务" }
-      : { href: "/deals", label: "全部情报" };
-  const breadcrumb = `<nav class="breadcrumb" aria-label="面包屑"><a href="/">首页</a><span class="sep" aria-hidden="true">/</span><a href="${channel.href}">${channel.label}</a><span class="sep" aria-hidden="true">/</span><span aria-current="page">优惠详情</span></nav>`;
+      ? { href: "/cloud", label: crumb.cloud }
+      : { href: "/deals", label: crumb.deals };
+  const breadcrumb = `<nav class="breadcrumb" aria-label="${crumb.aria}"><a href="/">${crumb.home}</a><span class="sep" aria-hidden="true">/</span><a href="${channel.href}">${channel.label}</a><span class="sep" aria-hidden="true">/</span><span aria-current="page">${crumb.current}</span></nav>`;
 
   const statusLabel = status === "archived" ? "已归档" : status === "ended" ? "已结束" : "进行中";
   const chips = `<div class="detail-chips"><span class="deal-status" data-status="${status}">${statusLabel}</span><span class="detail-chip">${escapeHtml(CATEGORY_LABEL[deal.category] || deal.category)}</span><span class="detail-chip">${escapeHtml(DEAL_TYPE_LABEL[deal.dealType] || deal.dealType)}</span><span class="detail-chip source">来源 · ${escapeHtml(show(deal.sourceName))}</span></div>`;
@@ -164,9 +182,9 @@ export function renderDealDetail(input: DetailInput): string {
     : '<noscript><p class="noscript">收藏、分享与领取反馈需要 JavaScript；优惠信息、费用与原文证据无需脚本即可阅读。</p></noscript>';
 
   return `<!DOCTYPE html>
-<html lang="zh-CN" data-lang="${lang}">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15"><meta name="description" content="${escapeHtml(description)}"><link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:type" content="article"><meta property="og:title" content="${escapeHtml(pageTitle)}"><meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(canonical)}"><meta property="og:site_name" content="GLOBAL DEAL HUNTER"><title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
-<body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
+<html lang="${htmlLang(lang)}" data-lang="${lang}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: pageTitle, description, path: detailPath(deal.id), origin: input.origin, type: "article", jsonLd })}<title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
+<body><a class="skip" href="#main">${lang === "en" ? "Skip to content" : "跳到正文"}</a>${renderNav({ active: "detail", lang })}
 <main class="detail-page" id="main">
   ${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照</p>' : ""}
   ${breadcrumb}
