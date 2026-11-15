@@ -24,6 +24,8 @@ const CSS = `
 .account-page select,.account-dialog input{max-width:100%;padding:8px;background:var(--bg);color:var(--ink)}
 .account-dialog .account-actions{margin-top:12px}.account-danger{color:#ffaaa5;border-color:#9b514f}
 .account-status{position:fixed;z-index:50;bottom:1rem;left:1rem;right:1rem;width:fit-content;max-width:calc(100% - 2rem);margin:auto;padding:8px 12px;background:var(--panel);border:1px solid var(--line);color:var(--ink)}
+.account-inbox{padding-left:1.25rem}.account-inbox li{margin-block:8px}.account-inbox small{display:block;color:var(--muted)}
+.account-inbox [data-unread=true]{font-weight:700}.account-inbox a{overflow-wrap:anywhere}
 @media(max-width:480px){.topnav-account .account-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.account-dialog{margin:auto auto 0;max-height:85vh}.account-actions>*{min-height:44px}.account-menu summary{max-width:5.5rem}}
 `;
 
@@ -53,7 +55,9 @@ export function renderAccount(lang: SiteLang, error: boolean): string {
 // feature-off responses always retain the original script and HTML.
 const accountScripts = [
   [CLIENT_SCRIPT, CLIENT_SCRIPT.replace("function readSaved() {", "function readSaved() {\n    if (window.dhAccount) return new Set(window.dhAccount.ids);")
-    .replace("const raw = readLocal(preferenceKey,{});", "const raw = window.dhAccount?.prefs ?? readLocal(preferenceKey,{});")],
+    .replace("const raw = readLocal(preferenceKey,{});", "const raw = window.dhAccount?.prefs ?? readLocal(preferenceKey,{});")
+    .replace("function refreshAlerts() {", "function refreshAlerts() {\n    if (window.dhAccount?.serverInbox) return;")
+    .replace("function showAlerts() {", "function showAlerts() {\n    if (window.dhAccount?.serverInbox) return;")],
   [HOME_SCRIPT, HOME_SCRIPT.replace("function readSaved() {", "function readSaved() {\n    if (window.dhAccount) return new Set(window.dhAccount.ids);")
     .replace("function readPreferences() {", "function readPreferences() {\n    if (window.dhAccount) return window.dhAccount.prefs;")],
   [DETAIL_SCRIPT, DETAIL_SCRIPT.replace("function readSaved() {", "function readSaved() {\n    if (window.dhAccount) return window.dhAccount.ids.slice();")],
@@ -63,7 +67,7 @@ export async function addAccountNav(response: Response, lang: SiteLang, accountP
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   headers.delete("etag");
-  const options = JSON.stringify({account: links(lang).account,
+  const options = JSON.stringify({account: links(lang).account, lang,
     copy: Object.fromEntries(Object.entries(accountCopy).map(([key, value]) => [key, value[lang]])),
   }).replaceAll("<", "\\u003c");
   const slot = `<a class="topnav-account" href="${links(lang).account}" data-account-slot><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg><span class="account-label">${escapeHtml(accountCopy.signIn[lang])}</span></a>`;

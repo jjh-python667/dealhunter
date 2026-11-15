@@ -1,6 +1,8 @@
+import { ACCOUNT_INBOX_SCRIPT } from "./account-inbox";
+
 export const ACCOUNT_SCRIPT = String.raw`
 (() => {
-  const {account, copy} = dhAccountOptions;
+  const {account, copy, lang} = dhAccountOptions;
   const find = selector => document.querySelector(selector);
   const slot = find('[data-account-slot]');
   const loginDialog = find('#login-dialog');
@@ -86,6 +88,7 @@ export const ACCOUNT_SCRIPT = String.raw`
       const result = await api('/api/me/prefs', readForm(event.target));
       window.dhAccount.prefs = result.prefs;
       showPrefs();
+      await refreshInbox();
       announce(copy.preferencesSaved);
     });
   }
@@ -234,6 +237,7 @@ export const ACCOUNT_SCRIPT = String.raw`
     menu.append(label, actions);
     slot.replaceWith(menu);
   }
+  ${ACCOUNT_INBOX_SCRIPT}
   async function initialize() {
     const me = await api('/api/me');
     if (typeof me.user?.login !== 'string') return;
@@ -251,11 +255,13 @@ export const ACCOUNT_SCRIPT = String.raw`
     publishSaved(saved.ids);
     showPrefs();
     if (!state.decision) openMerge();
+    await mountInbox(me.serverAlerts === true);
     addEventListener('focus', () => perform(async () => {
       const [saved, prefs] = await Promise.all([api('/api/me/saved'), api('/api/me/prefs')]);
       publishSaved(saved.ids);
       window.dhAccount.prefs = prefs.prefs;
       showPrefs();
+      await refreshInbox();
     }, () => {}));
   }
   initialize().catch(() => announce(copy.requestError)).finally(() => { state.loading = false; });

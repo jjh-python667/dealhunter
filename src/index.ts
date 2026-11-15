@@ -1,5 +1,6 @@
 import { adminDecision } from "./auth";
 import { accountApi, accountsEnabled } from "./accounts/api";
+import { runAccountAlerts } from "./accounts/alerts";
 import { buildBoard } from "./board";
 import { runCollection } from "./collect";
 import {
@@ -433,6 +434,7 @@ export default {
         enabled: translateOn(env),
       });
       console.log(JSON.stringify({ message: "translate", ...report }));
+      await runAccountAlerts(env, controller.scheduledTime);
       return;
     }
     const sources = controller.cron === RADAR_CRON ? scheduledSources(controller.scheduledTime) : undefined;

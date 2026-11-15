@@ -1,7 +1,9 @@
 import { allowsAccountWrite } from "./csrf";
+import { alertsEnabled } from "./alerts";
 import { deleteAccount, exportAccount, getPrefs, listSaved, MAX_SAVED, mergeSaved, parsePrefs, putPrefs, readAccountBody, updateSaved } from "./data";
 import { failedGitHub, finishGitHub, startGitHub, type GitHubConfig } from "./github";
 import { allowRate } from "./rate";
+import { countUnread, listInbox, markInboxRead } from "./inbox";
 import { authHeaders, authJson, hash } from "./security";
 import { clearSession, readSession } from "./session";
 
@@ -18,6 +20,8 @@ const ME_METHODS: Record<string, string[]> = {
   "/api/me/prefs": ["GET", "POST"],
   "/api/me/export": ["GET"],
   "/api/me/delete": ["POST"],
+  "/api/me/inbox": ["GET"],
+  "/api/me/inbox/read": ["POST"],
 };
 
 async function accountData(request: Request, db: D1Database, path: string, pepper: string | undefined, now: number) {
@@ -34,6 +38,7 @@ async function accountData(request: Request, db: D1Database, path: string, peppe
     }
   }
   if (!write) {
+    if (path === "/api/me/inbox") return listInbox(request, db, user, (await getPrefs(db, user)).frequency === "daily", now);
     if (path === "/api/me/saved") return authJson({ids: await listSaved(db, user)});
     if (path === "/api/me/prefs") return authJson({prefs: await getPrefs(db, user)});
     const headers = authHeaders();
@@ -43,6 +48,7 @@ async function accountData(request: Request, db: D1Database, path: string, peppe
   }
   const body = await readAccountBody(request);
   if (!body) return authJson({error: "invalid_body"}, 400);
+  if (path === "/api/me/inbox/read") return markInboxRead(db, user, (await getPrefs(db, user)).frequency === "daily", now, body);
   const at = new Date(now).toISOString();
   if (path === "/api/me/delete") {
     if (body.confirm !== session.row.display_name) return authJson({error: "invalid_confirmation"}, 400);
@@ -78,6 +84,8 @@ export async function accountApi(request: Request, env: Env, path: string): Prom
   const vars: AccountVars = env as Env & AccountVars;
   const now = Date.now();
   const pepper = vars.SESSION_PEPPER;
+  const serverAlerts = alertsEnabled(env);
+  if (path.startsWith("/api/me/inbox") && !serverAlerts) return authJson({error: "not_found"}, 404);
   try {
     if (path === "/api/me") {
       if (request.method !== "GET") return authJson({error: "method_not_allowed"}, 405);
@@ -88,7 +96,8 @@ export async function accountApi(request: Request, env: Env, path: string): Prom
         env.DB.prepare("SELECT COUNT(*) AS n FROM user_saved WHERE user_id=?").bind(id).first<{n: number}>(),
         getPrefs(env.DB, id),
       ]);
-      return authJson({user: {login: session.row.display_name}, savedCount: count?.n ?? 0, prefs, unread: 0,
+      return authJson({user: {login: session.row.display_name}, savedCount: count?.n ?? 0, prefs, serverAlerts,
+        unread: serverAlerts ? await countUnread(env.DB, id, prefs.frequency === "daily", now) : 0,
         mergeKey: await hash(pepper + ":browser:" + id)}, 200, session.setCookie);
     }
     if (Object.hasOwn(ME_METHODS, path)) return await accountData(request, env.DB, path, pepper, now);

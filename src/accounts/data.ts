@@ -98,8 +98,9 @@ export async function updateSaved(db: D1Database, user: string, now: string, add
   const toRemove = ids(remove);
   const removeSet = new Set(toRemove);
   const toAdd = ids(add).filter(id => !removeSet.has(id));
-  const [, , inserted, , saved] = await db.batch<{deal_id: string}>([
+  const [, , , inserted, , saved] = await db.batch<{deal_id: string}>([
     db.prepare("DELETE FROM user_saved WHERE user_id=? AND deal_id IN (SELECT value FROM json_each(?))").bind(user, JSON.stringify(toRemove)),
+    db.prepare("DELETE FROM alert_state WHERE user_id=? AND deal_id IN (SELECT value FROM json_each(?))").bind(user, JSON.stringify(toRemove)),
     db.prepare(`INSERT INTO saved_tombstones(user_id,deal_id,removed_at) SELECT ?,value,? FROM json_each(?) WHERE 1
       ON CONFLICT(user_id,deal_id) DO UPDATE SET removed_at=excluded.removed_at`).bind(user, now, JSON.stringify(toRemove)),
     db.prepare(`INSERT INTO user_saved(user_id,deal_id,saved_at)
