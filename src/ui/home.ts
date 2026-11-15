@@ -291,7 +291,7 @@ export function renderHome(input: HomeInput): string {
   return `<!DOCTYPE html>
 <html lang="${htmlLang(lang)}" data-lang="${lang}" data-snapshot-at="${now.getTime()}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: doc.title, description: doc.description, path: "/", origin: input.origin, type: "website" })}<title>${escapeHtml(doc.title)}</title><style>${PAGE_CSS}${NAV_CSS}${HOME_CSS}</style></head>
-<body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "home", lang })}
+<body><a class="skip" href="#main">${lang === "en" ? "Skip to content" : "跳到正文"}</a>${renderNav({ active: "home", lang })}
 <main class="portal" id="main">
 ${hero}
 ${errorBanner}

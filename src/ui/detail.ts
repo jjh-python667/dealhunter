@@ -106,12 +106,15 @@ export function renderDealDetail(input: DetailInput): string {
     jsonLd.offers = offer;
   }
 
+  const crumb = lang === "en"
+    ? { aria: "Breadcrumb", home: "Home", ai: "AI tools", cloud: "Cloud", deals: "All deals", current: "Offer" }
+    : { aria: "面包屑", home: "首页", ai: "AI 工具", cloud: "云服务", deals: "全部情报", current: "优惠详情" };
   const channel = deal.category === "ai"
-    ? { href: "/ai-tools", label: "AI 工具" }
+    ? { href: "/ai-tools", label: crumb.ai }
     : deal.category === "vps"
-      ? { href: "/cloud", label: "云服务" }
-      : { href: "/deals", label: "全部情报" };
-  const breadcrumb = `<nav class="breadcrumb" aria-label="面包屑"><a href="/">首页</a><span class="sep" aria-hidden="true">/</span><a href="${channel.href}">${channel.label}</a><span class="sep" aria-hidden="true">/</span><span aria-current="page">优惠详情</span></nav>`;
+      ? { href: "/cloud", label: crumb.cloud }
+      : { href: "/deals", label: crumb.deals };
+  const breadcrumb = `<nav class="breadcrumb" aria-label="${crumb.aria}"><a href="/">${crumb.home}</a><span class="sep" aria-hidden="true">/</span><a href="${channel.href}">${channel.label}</a><span class="sep" aria-hidden="true">/</span><span aria-current="page">${crumb.current}</span></nav>`;
 
   const statusLabel = status === "archived" ? "已归档" : status === "ended" ? "已结束" : "进行中";
   const chips = `<div class="detail-chips"><span class="deal-status" data-status="${status}">${statusLabel}</span><span class="detail-chip">${escapeHtml(CATEGORY_LABEL[deal.category] || deal.category)}</span><span class="detail-chip">${escapeHtml(DEAL_TYPE_LABEL[deal.dealType] || deal.dealType)}</span><span class="detail-chip source">来源 · ${escapeHtml(show(deal.sourceName))}</span></div>`;
@@ -181,7 +184,7 @@ export function renderDealDetail(input: DetailInput): string {
   return `<!DOCTYPE html>
 <html lang="${htmlLang(lang)}" data-lang="${lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#090f15">${seoHead({ lang, title: pageTitle, description, path: detailPath(deal.id), origin: input.origin, type: "article", jsonLd })}<title>${escapeHtml(pageTitle)}</title><style>${PAGE_CSS}${NAV_CSS}${DETAIL_CSS}</style></head>
-<body><a class="skip" href="#main">跳到正文</a>${renderNav({ active: "detail", lang })}
+<body><a class="skip" href="#main">${lang === "en" ? "Skip to content" : "跳到正文"}</a>${renderNav({ active: "detail", lang })}
 <main class="detail-page" id="main">
   ${input.preview ? '<p class="preview-label">本机预览 · 线上数据快照</p>' : ""}
   ${breadcrumb}

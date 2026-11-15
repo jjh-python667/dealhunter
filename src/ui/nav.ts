@@ -4,39 +4,50 @@ import { icon } from "./shared";
 export type NavKey = "home" | "ai-tools" | "cloud" | "deals" | "detail";
 export type SiteLang = "zh" | "en";
 
-const PRIMARY: Array<{ key: NavKey; href: string; label: string }> = [
-  { key: "home", href: "/", label: "首页" },
-  { key: "ai-tools", href: "/ai-tools", label: "AI 工具" },
-  { key: "cloud", href: "/cloud", label: "云服务" },
+const PRIMARY: Array<{ key: NavKey; href: string; zh: string; en: string }> = [
+  { key: "home", href: "/", zh: "首页", en: "Home" },
+  { key: "ai-tools", href: "/ai-tools", zh: "AI 工具", en: "AI tools" },
+  { key: "cloud", href: "/cloud", zh: "云服务", en: "Cloud" },
 ];
 
-const TOOLS: Array<{ href: string; label: string; glyph: string; key: string }> = [
-  { href: "/deals?focus=search", label: "搜索", glyph: "search", key: "search" },
-  { href: "/deals?view=saved", label: "收藏", glyph: "bookmark", key: "saved" },
-  { href: "/deals#alerts", label: "提醒", glyph: "bell", key: "alerts" },
+const TOOLS: Array<{ href: string; zh: string; en: string; glyph: string; key: string }> = [
+  { href: "/deals?focus=search", zh: "搜索", en: "Search", glyph: "search", key: "search" },
+  { href: "/deals?view=saved", zh: "收藏", en: "Saved", glyph: "bookmark", key: "saved" },
+  { href: "/deals#alerts", zh: "提醒", en: "Alerts", glyph: "bell", key: "alerts" },
 ];
 
 /**
  * Top navigation shared by every public page. The three discovery channels come
  * first, then the personal tools (search / saved / reminders), then language.
+ * The language control stays visible on a phone; it only gets shorter.
  */
 export function renderNav(input: { active: NavKey; lang?: SiteLang }): string {
   const lang: SiteLang = input.lang === "en" ? "en" : "zh";
+  const labelOf = (item: { zh: string; en: string }) => item[lang];
   const primary = PRIMARY.map((item) => {
     const current = item.key === input.active ? ' aria-current="page"' : "";
-    return `<a class="topnav-link" href="${item.href}" data-nav="${item.key}"${current}>${escapeHtml(item.label)}</a>`;
+    return `<a class="topnav-link" href="${item.href}" data-nav="${item.key}"${current}>${escapeHtml(labelOf(item))}</a>`;
   }).join("");
-  const tools = TOOLS.map((item) => `<a class="topnav-tool" href="${item.href}" data-nav-tool="${item.key}" aria-label="${escapeHtml(item.label)}" title="${escapeHtml(item.label)}">${icon(item.glyph)}<span>${escapeHtml(item.label)}</span></a>`).join("");
-  const langLinks = ["zh", "en"].map((code) => {
-    const label = code === "zh" ? "中文" : "EN";
+  const tools = TOOLS.map((item) => {
+    const label = labelOf(item);
+    return `<a class="topnav-tool" href="${item.href}" data-nav-tool="${item.key}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${icon(item.glyph)}<span>${escapeHtml(label)}</span></a>`;
+  }).join("");
+  const langLinks = (["zh", "en"] as const).map((code) => {
+    const full = code === "zh" ? "中文" : "EN";
+    const short = code === "zh" ? "中" : "EN";
     const current = code === lang ? ' aria-current="true"' : "";
-    return `<a class="topnav-lang-link" href="?lang=${code}" hreflang="${code === "zh" ? "zh-CN" : "en"}" data-set-lang-server="${code}"${current}>${label}</a>`;
+    return `<a class="topnav-lang-link" href="?lang=${code}" hreflang="${code === "zh" ? "zh-CN" : "en"}" data-set-lang-server="${code}"${current}><span class="lang-full">${full}</span><span class="lang-short">${short}</span></a>`;
   }).join("");
+  const brand = lang === "en" ? "Deal Hunter home" : "Deal Hunter 首页";
+  const channels = lang === "en" ? "Offer channels" : "优惠频道";
+  const personal = lang === "en" ? "Personal tools" : "个人工具";
+  const language = lang === "en" ? "Content language" : "内容语言";
+  const tagline = lang === "en" ? "GLOBAL DEAL HUNTER" : "全球羊毛情报中心";
   return `<header class="topnav" data-active="${input.active}">
   <div class="topnav-inner">
-    <a class="topnav-brand" href="/" aria-label="Deal Hunter 首页"><span class="topnav-mark">${icon("radar")}</span><span class="topnav-wordmark"><strong>Deal Hunter</strong><small>${lang === "en" ? "GLOBAL DEAL HUNTER" : "全球羊毛情报中心"}</small></span></a>
-    <nav class="topnav-primary" aria-label="优惠频道">${primary}</nav>
-    <div class="topnav-tools"><nav class="topnav-tool-links" aria-label="个人工具">${tools}</nav><nav class="topnav-langs" aria-label="内容语言">${langLinks}</nav></div>
+    <a class="topnav-brand" href="/" aria-label="${escapeHtml(brand)}"><span class="topnav-mark">${icon("radar")}</span><span class="topnav-wordmark"><strong>Deal Hunter</strong><small>${tagline}</small></span></a>
+    <nav class="topnav-primary" aria-label="${escapeHtml(channels)}">${primary}</nav>
+    <div class="topnav-tools"><nav class="topnav-tool-links" aria-label="${escapeHtml(personal)}">${tools}</nav><nav class="topnav-langs" aria-label="${escapeHtml(language)}">${langLinks}</nav></div>
   </div>
 </header>`;
 }
@@ -64,10 +75,12 @@ export const NAV_CSS = String.raw`
 .topnav-langs{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .topnav-lang-link{display:grid;place-items:center;min-height:36px;padding:4px 9px;color:var(--muted);font-size:11px}
 .topnav-lang-link:hover{color:var(--gold);text-decoration:none}
+.topnav-lang-link:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .topnav-lang-link[aria-current="true"]{background:#e9bd761d;color:var(--gold)}
+.lang-short{display:none}
 @media(max-width:1000px){.topnav-inner{gap:16px;padding:8px 24px}.topnav-tool span{display:none}.topnav-tool{padding:6px 8px}}
-@media(max-width:720px){.topnav-inner{gap:10px;padding:8px 16px;min-height:56px}.topnav-wordmark small{display:none}.topnav-mark{width:30px;height:30px}.topnav-primary{gap:2px}.topnav-link{padding:8px 9px;font-size:12px;min-height:40px}.topnav-langs{display:none}}
-@media(max-width:480px){.topnav-wordmark{display:none}.topnav-inner{padding:8px 12px;gap:8px}.topnav-link{padding:8px 8px}}
+@media(max-width:720px){.topnav-inner{gap:10px;padding:8px 16px;min-height:56px}.topnav-wordmark small{display:none}.topnav-mark{width:30px;height:30px}.topnav-primary{gap:2px}.topnav-link{padding:8px 9px;font-size:12px;min-height:40px}.topnav-langs{display:flex;flex-shrink:0}.topnav-lang-link{padding:4px 6px;min-height:40px}.lang-full{display:none}.lang-short{display:inline}}
+@media(max-width:480px){.topnav-wordmark{display:none}.topnav-inner{padding:8px 12px;gap:8px}.topnav-link{padding:8px 8px}.topnav-langs{display:flex;flex-shrink:0}.topnav-lang-link{padding:4px 6px;min-height:40px}}
 @media(max-width:420px){.topnav-wordmark strong{font-size:13px}.topnav-link{padding:8px 7px}.topnav-tools{gap:4px}.topnav-tool{min-height:40px}}
 @media(prefers-reduced-motion:reduce){.topnav{backdrop-filter:none;-webkit-backdrop-filter:none}}
 `;

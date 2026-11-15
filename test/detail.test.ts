@@ -315,6 +315,13 @@ test("preview and language switches keep the page honest", () => {
   assert.doesNotMatch(html, /undefined/);
 });
 
+test("english detail chrome uses an English skip link and breadcrumb", () => {
+  const html = detail(deal("crumb", { category: "ai" }), { lang: "en" });
+  assert.match(html, /<a class="skip" href="#main">Skip to content<\/a>/);
+  assert.match(html, /<nav class="breadcrumb" aria-label="Breadcrumb"><a href="\/">Home<\/a>.*<a href="\/ai-tools">AI tools<\/a>.*<span aria-current="page">Offer<\/span><\/nav>/);
+  assert.doesNotMatch(html, /aria-label="面包屑"|跳到正文/);
+});
+
 test("claim-status feedback copy follows the page language", () => {
   const zh = detail(deal("feedback-language"), { lang: "zh" });
   const en = detail(deal("feedback-language"), {

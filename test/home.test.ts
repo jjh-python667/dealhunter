@@ -4,6 +4,7 @@ import { evidenceStrength, selectFeatured } from "../src/content/featured";
 import type { DealRecord } from "../src/types";
 import { HOME_SCRIPT, renderHome } from "../src/ui/home";
 import { HOME_CSS } from "../src/ui/home-styles";
+import { NAV_CSS, renderNav } from "../src/ui/nav";
 import { renderCard } from "../src/ui/shared";
 
 const now = new Date("2026-11-10T03:00:00Z");
@@ -386,9 +387,55 @@ test("english renders switch the document language and keep the original excerpt
   assert.match(en, /<meta name="description" content="Global Deal Hunter lists public/);
   assert.match(en, /<h1 id="portal-title">Global Deal Hunter<\/h1>/);
   assert.match(en, /<p class="portal-lede">AI tools, cloud services/);
+  assert.match(en, /<a class="skip" href="#main">Skip to content<\/a>/);
   assert.doesNotMatch(en, /全球羊毛情报中心/);
   assert.match(en, /Free trial for students/);
   assert.match(zh, /面向学生的免费试用/);
+});
+
+test("a phone-width nav keeps the language switch, and English labels stay English", () => {
+  function media(query: string): string {
+    const marker = `@media(${query}){`;
+    const start = NAV_CSS.indexOf(marker);
+    assert.ok(start >= 0, query);
+    let depth = 0;
+    for (let index = start + marker.length - 1; index < NAV_CSS.length; index += 1) {
+      if (NAV_CSS[index] === "{") depth += 1;
+      else if (NAV_CSS[index] === "}") {
+        depth -= 1;
+        if (depth === 0) return NAV_CSS.slice(start, index + 1);
+      }
+    }
+    throw new Error(`unclosed ${query}`);
+  }
+  for (const query of ["max-width:720px", "max-width:480px"]) {
+    const block = media(query);
+    assert.match(block, /\.topnav-langs\{display:flex/);
+    assert.doesNotMatch(block, /\.topnav-langs\{[^}]*display:\s*none/);
+  }
+  assert.match(NAV_CSS, /\.topnav-lang-link:focus-visible/);
+  assert.match(NAV_CSS, /prefers-reduced-motion:reduce/);
+  assert.match(NAV_CSS, /overflow-wrap|min-width:0/);
+  const english = renderNav({ active: "home", lang: "en" });
+  for (const label of [">Home<", ">AI tools<", ">Cloud<", ">Search<", ">Saved<", ">Alerts<"]) {
+    assert.ok(english.includes(label), label);
+  }
+  const chinese = renderNav({ active: "home", lang: "zh" });
+  assert.match(chinese, />首页</);
+  assert.match(chinese, />AI 工具</);
+  assert.doesNotMatch(chinese, />Home</);
+});
+
+test("english card spans do not show the Chinese source-text label", () => {
+  const card = renderCard(deal("copy", { zhTitle: "中文标题", zhSummary: "中文摘要", summary: "" }), {
+    sections: "", archived: false, hidden: false, open: false,
+  });
+  const english = [...card.matchAll(/class="[^"]*\bt-en\b[^"]*"[^>]*>([^<]*)</g)].map((match) => match[1] ?? "");
+  assert.ok(english.length > 0);
+  for (const text of english) assert.doesNotMatch(text, /来源原文|来源没有提供摘要/);
+  assert.match(card, /<span class="t-en">Source text<\/span>/);
+  assert.match(card, /<p class="excerpt t-en">The source did not include a summary\.<\/p>/);
+  assert.match(card, /原文可查/);
 });
 
 test("deal categories are escaped before they are written into HTML attributes", () => {
